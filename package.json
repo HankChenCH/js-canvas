@@ -1,0 +1,21 @@
+{
+    "name": "@hankchen/canvas-next",
+    "version": "0.1.0",
+    "private": true,
+    "license": "MIT",
+    "description": "文档模型：graph 类型与解码校验、画布/图层纯结构、布局纯函数、五原语渲染契约——零 DOM、零运行时依赖",
+    "type": "module",
+    "exports": {
+        ".": {
+            "types": "./src/index.ts",
+            "default": "./src/index.ts"
+        }
+    },
+    "scripts": {
+        "test": "vitest run",
+        "typecheck": "tsc --noEmit -p tsconfig.json"
+    },
+    "devDependencies": {
+        "vitest": "^5.0.1"
+    }
+}
