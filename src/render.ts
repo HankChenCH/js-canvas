@@ -88,6 +88,14 @@ export function resolveLayerBox(
     }
 }
 
+/**
+ * QR 图层的绘制引用键：内容加 `qr:` 前缀命名空间，避免与 ImageLayer 的资源 URL
+ * 混淆。物化器（工单 04）生成二维码位图后以同键经后端 setImage 回写，模板据此取图。
+ */
+export function qrImageSrc(value: string): string {
+    return `qr:${value}`
+}
+
 /** 渲染整棵结构树；canvas.layers 已按 priority 降序（数组头先画垫底） */
 export function renderCanvas(canvas: Canvas, backend: RenderBackend, policies?: TextLayoutPolicies): void {
     backend.begin(canvas.width, canvas.height)
@@ -137,7 +145,12 @@ function paintContent(
             break
         }
         case 'QrCodeLayer':
-            // 二维码按宽正方形铺放（与 PHP 模板一致）随物化在工单 04 接入
+            // 镜像 PHP paintQrCode：二维码图像按宽度正方形铺放于图层原点（padding/align
+            // 不参与，声明高 ≠ 宽时图像仍宽×宽）；空值无内容（PHP resolvedSrc null 同门）。
+            // 未物化时后端查不到键只画盒——占位语义（工单 04 物化器回写 qrImageSrc 键）
+            if (layer.value !== '') {
+                backend.drawImage(qrImageSrc(layer.value), box.x, box.y, box.width, box.width)
+            }
             break
         default:
             break

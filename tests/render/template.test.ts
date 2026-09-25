@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { decodeGraph, renderCanvas } from '../../src/index'
+import { decodeGraph, qrImageSrc, renderCanvas } from '../../src/index'
 import type { Border, RenderBackend } from '../../src/index'
 
 interface CallRecord {
@@ -175,7 +175,7 @@ describe('五原语渲染模板', () => {
         ])
     })
 
-    it('工单 03 内容分派：图片/文本绘制原语接入（QR 仍为占位盒，工单 04）', () => {
+    it('工单 03 内容分派：图片/文本绘制原语接入（QR 随工单 04 接入）', () => {
         const canvas = decodeGraph({
             canvas: { width: 100, height: 100 },
             layers: [
@@ -194,6 +194,8 @@ describe('五原语渲染模板', () => {
         const images = calls.filter((call) => call.op === 'image')
         expect(images).toEqual([
             { op: 'image', src: 'a.png', x: 10, y: 10, width: 80, height: 80 },
+            // QR：图层原点起按宽度正方形铺放（PHP paintQrCode 同门）
+            { op: 'image', src: 'qr:qr', x: 0, y: 0, width: 10, height: 10 },
         ])
 
         const texts = calls.filter((call) => call.op === 'text')
@@ -201,6 +203,67 @@ describe('五原语渲染模板', () => {
             // left/bottom 缺省：x = 0 + 0，y = 0 + contentHeight(30) = 30
             { op: 'text', line: '文本', x: 0, y: 30 },
         ])
+    })
+
+    it('工单 04 QR 绘制：内容盒无关、忽略 padding/align，声明高 ≠ 宽时仍按宽铺正方形', () => {
+        const canvas = decodeGraph({
+            canvas: { width: 200, height: 200 },
+            layers: [{
+                type: 'QrCodeLayer',
+                spec: {
+                    shape: {
+                        width: 80,
+                        height: 40, // 声明高 ≠ 宽：PHP getHeight 声明优先生效，但图像仍宽×宽
+                        padding: { top: 5, bottom: 5, left: 7, right: 7 },
+                    },
+                    align: { horizontal: 'center', vertical: 'center' },
+                    position: { x: 10, y: 20 },
+                },
+                data: { value: 'https://example.com/join' },
+            }],
+        })
+        const { calls, backend } = recordingBackend()
+        renderCanvas(canvas, backend)
+
+        expect(calls.filter((call) => call.op === 'image')).toEqual([
+            { op: 'image', src: 'qr:https://example.com/join', x: 10, y: 20, width: 80, height: 80 },
+        ])
+        // 盒高按声明（40），QR 内容铺宽 × 宽（80）
+        expect(rects(calls)[0]).toMatchObject({ width: 80, height: 40 })
+    })
+
+    it('工单 04 QR：空值不绘制；表格单元格内的 QR 同样分派', () => {
+        const canvas = decodeGraph({
+            canvas: { width: 300, height: 100 },
+            layers: [
+                { type: 'QrCodeLayer', spec: { shape: { width: 20, height: 20 } }, data: { value: '' } },
+                {
+                    type: 'TableLayer',
+                    spec: { shape: { width: 100, height: 40 }, position: { x: 10, y: 20 } },
+                    rows: [{
+                        type: 'TableRowLayer',
+                        spec: { shape: { width: 100, height: 40 } },
+                        cells: [{
+                            type: 'TableCellLayer',
+                            spec: { shape: { width: 50, height: 40 } },
+                            content: { type: 'QrCodeLayer', spec: { shape: { width: 30, height: 30 } }, data: { value: 'cell' } },
+                        }],
+                    }],
+                },
+            ],
+        })
+        const { calls, backend } = recordingBackend()
+        renderCanvas(canvas, backend)
+
+        expect(calls.filter((call) => call.op === 'image')).toEqual([
+            // 单元格内容层与单元格同原点（10, 20）；addContentLayer 副作用把内容宽
+            // 同步为 cell 宽 50，QR 按同步后的宽铺 50×50 正方形
+            { op: 'image', src: 'qr:cell', x: 10, y: 20, width: 50, height: 50 },
+        ])
+    })
+
+    it('qrImageSrc：QR 内容的绘制引用键（物化器经 setImage 回写同键）', () => {
+        expect(qrImageSrc('https://example.com')).toBe('qr:https://example.com')
     })
 
     it('autowrap 文本逐行分派：行高推进 + autoHeight 动态高一致', () => {

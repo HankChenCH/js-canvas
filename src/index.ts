@@ -28,6 +28,7 @@ export {
     type RenderBackend,
     type TextDrawOptions,
     forEachLayerBox,
+    qrImageSrc,
     renderCanvas,
     resolveLayerBox,
 } from './render'
