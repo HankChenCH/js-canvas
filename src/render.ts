@@ -96,11 +96,27 @@ export function qrImageSrc(value: string): string {
     return `qr:${value}`
 }
 
+/** 渲染模板的可选行为（编辑器等工具层的挂钩；缺省全量绘制） */
+export interface RenderCanvasOptions {
+    /**
+     * 返回 true 的图层跳过内容绘制（盒/背景/边框照常画）。编辑器文本编辑态用：
+     * 该层文字由 textarea overlay 呈现，canvas 再画一份会与浏览器断行叠加成重影
+     * （断行允许与预览不同，决策 A）。
+     */
+    skipContent?: (layer: Layer) => boolean
+}
+
 /** 渲染整棵结构树；canvas.layers 已按 priority 降序（数组头先画垫底） */
-export function renderCanvas(canvas: Canvas, backend: RenderBackend, policies?: TextLayoutPolicies): void {
+export function renderCanvas(
+    canvas: Canvas,
+    backend: RenderBackend,
+    policies?: TextLayoutPolicies,
+    options?: RenderCanvasOptions,
+): void {
     backend.begin(canvas.width, canvas.height)
     forEachLayerBox(canvas, (layer, box) => {
         backend.drawRect(box.x, box.y, box.width, box.height, layer.shape.backgroundColor, layer.shape.border)
+        if (options?.skipContent?.(layer)) return
         paintContent(layer, box, backend, policies)
     }, policies)
     backend.end()

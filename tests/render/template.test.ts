@@ -262,6 +262,55 @@ describe('五原语渲染模板', () => {
         ])
     })
 
+    it('skipContent 选项：命中层跳过内容绘制、盒照常绘制，其余层不受影响（编辑态防重影）', () => {
+        const canvas = decodeGraph({
+            canvas: { width: 100, height: 100 },
+            layers: [
+                { type: 'TextLayer', spec: { shape: { width: 40, height: 20 }, fontFamily: { fontSize: 10 } }, data: { value: '跳过我' } },
+                { type: 'TextLayer', spec: { shape: { width: 40, height: 20 }, fontFamily: { fontSize: 10 } }, data: { value: '保留' } },
+            ],
+        })
+        const skipped = canvas.layers[0]!
+        const { calls, backend } = recordingBackend()
+        renderCanvas(canvas, backend, undefined, { skipContent: (layer) => layer === skipped })
+
+        // 盒（背景/边框）照常绘制：两个 rect 都在
+        expect(rects(calls)).toHaveLength(2)
+        // 内容只画未跳过的层：跳过层的 drawText 消失（盒绘制不受影响——跳绘针对内容）
+        expect(calls.filter((call) => call.op === 'text')).toEqual([
+            { op: 'text', line: '保留', x: 0, y: 20 },
+        ])
+    })
+
+    it('skipContent 对表格格内容层同样生效（格内文本编辑的跳绘路径）', () => {
+        const canvas = decodeGraph({
+            canvas: { width: 300, height: 100 },
+            layers: [{
+                type: 'TableLayer',
+                spec: { shape: { width: 100, height: 40 }, position: { x: 10, y: 20 } },
+                rows: [{
+                    type: 'TableRowLayer',
+                    spec: { shape: { width: 100, height: 40 } },
+                    cells: [{
+                        type: 'TableCellLayer',
+                        spec: { shape: { width: 50, height: 40 } },
+                        content: { type: 'TextLayer', spec: { shape: { width: 50, height: 40 }, fontFamily: { fontSize: 10 } }, data: { value: '格内文本' } },
+                    }],
+                }],
+            }],
+        })
+        const table = canvas.layers[0]!
+        if (table.type !== 'TableLayer') throw new Error('fixture: 表格层')
+        const content = table.rows[0]!.cells[0]!.content
+        if (!content) throw new Error('fixture: 格内容')
+        const { calls, backend } = recordingBackend()
+        renderCanvas(canvas, backend, undefined, { skipContent: (layer) => layer === content })
+
+        // 表/行/格/内容四个盒照常绘制（跳绘只针对内容）
+        expect(rects(calls)).toHaveLength(4)
+        expect(calls.filter((call) => call.op === 'text')).toEqual([])
+    })
+
     it('qrImageSrc：QR 内容的绘制引用键（物化器经 setImage 回写同键）', () => {
         expect(qrImageSrc('https://example.com')).toBe('qr:https://example.com')
     })
