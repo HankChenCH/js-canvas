@@ -89,9 +89,14 @@ describe('动态尺寸（layerHeight/内容盒）', () => {
         expect(layerHeight(layer)).toBe(30)
     })
 
-    it('autowrap 的行数依赖断行器，工单 02 先按未断行单行计（有占位语义即不塌陷）', () => {
-        const layer = textLayer({ fontSize: 10, text: '一二三四五六七', autowrap: true })
-        expect(layerHeight(layer)).toBe(10)
+    it('autowrap 的行数依赖断行器：内容盒宽 50、字号 10 → 两行（工单 03 接入默认断行器）', () => {
+        const layer = textLayer({
+            shape: { ...textLayer({}).shape, width: 50 },
+            fontSize: 10,
+            text: '一二三四五六七',
+            autowrap: true,
+        })
+        expect(layerHeight(layer)).toBe(20)
     })
 
     it('内容盒扣减 padding 且向零截断（平移 testContentSizeSubtractsPadding）', () => {

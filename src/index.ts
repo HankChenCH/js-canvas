@@ -15,9 +15,13 @@ export {
     anchorOffset,
     contentHeight,
     contentWidth,
+    imageOrigin,
     layerHeight,
     layerWidth,
     lineHeightPx,
+    textLines,
+    textOrigin,
+    type TextLayoutPolicies,
 } from './layout'
 export {
     type LayerBox,
@@ -27,3 +31,14 @@ export {
     renderCanvas,
     resolveLayerBox,
 } from './render'
+export {
+    LINE_END_FORBIDDEN,
+    LINE_START_FORBIDDEN,
+    type LineBreaker,
+    type TextMeasurer,
+    type TextMeasurerFactory,
+    createHeuristicMeasurer,
+    createUax14LineBreaker,
+    heuristicMeasurerFactory,
+    splitGraphemes,
+} from './text'

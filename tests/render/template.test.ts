@@ -175,21 +175,74 @@ describe('五原语渲染模板', () => {
         ])
     })
 
-    it('工单 02 占位语义：文本/图片/QR 只画盒，不触发 drawImage/drawText', () => {
+    it('工单 03 内容分派：图片/文本绘制原语接入（QR 仍为占位盒，工单 04）', () => {
         const canvas = decodeGraph({
             canvas: { width: 100, height: 100 },
             layers: [
-                { type: 'ImageLayer', spec: { shape: { width: 10, height: 10 } }, data: { value: 'a.png' } },
-                { type: 'TextLayer', spec: { shape: { width: 10, height: 10 } }, data: { value: '文本' } },
+                // 图片：内容盒 80×80（padding 10），cover 原点 = center/center → (10, 10)
+                { type: 'ImageLayer', spec: { shape: { width: 100, height: 100, padding: { top: 10, bottom: 10, left: 10, right: 10 } } }, data: { value: 'a.png' } },
+                // 无 src 只画盒
+                { type: 'ImageLayer', spec: { shape: { width: 10, height: 10 } } },
+                // 文本：非 autowrap 单行；left/bottom 缺省
+                { type: 'TextLayer', spec: { shape: { width: 40, height: 30 }, fontFamily: { fontSize: 10 } }, data: { value: '文本' } },
                 { type: 'QrCodeLayer', spec: { shape: { width: 10, height: 10 } }, data: { value: 'qr' } },
             ],
         })
         const { calls, backend } = recordingBackend()
         renderCanvas(canvas, backend)
 
-        expect(rects(calls)).toHaveLength(3)
-        expect(calls.filter((call) => call.op === 'image')).toEqual([])
-        expect(calls.filter((call) => call.op === 'text')).toEqual([])
+        const images = calls.filter((call) => call.op === 'image')
+        expect(images).toEqual([
+            { op: 'image', src: 'a.png', x: 10, y: 10, width: 80, height: 80 },
+        ])
+
+        const texts = calls.filter((call) => call.op === 'text')
+        expect(texts).toEqual([
+            // left/bottom 缺省：x = 0 + 0，y = 0 + contentHeight(30) = 30
+            { op: 'text', line: '文本', x: 0, y: 30 },
+        ])
+    })
+
+    it('autowrap 文本逐行分派：行高推进 + autoHeight 动态高一致', () => {
+        const canvas = decodeGraph({
+            canvas: { width: 100, height: 100 },
+            layers: [{
+                type: 'TextLayer',
+                spec: {
+                    shape: { width: 50, height: 'auto', autoHeight: true },
+                    fontFamily: { fontSize: 10, autowrap: true },
+                },
+                data: { value: '一二三四五六七' },
+            }],
+        })
+        const { calls, backend } = recordingBackend()
+        renderCanvas(canvas, backend)
+
+        const texts = calls.filter((call) => call.op === 'text')
+        expect(texts).toEqual([
+            // bottom+autowrap 两行：首行锚点 y = 动态高 20 - 行高 10×(2-1) = 10
+            { op: 'text', line: '一二三四五', x: 0, y: 10 },
+            { op: 'text', line: '六七', x: 0, y: 20 },
+        ])
+        // 盒高 = 行高 10 × 2 行
+        expect(rects(calls)[0]).toMatchObject({ width: 50, height: 20 })
+    })
+
+    it('空文本行也分派 drawText（空行守卫归后端；与快照契约 paint 序一致）', () => {
+        const canvas = decodeGraph({
+            canvas: { width: 100, height: 100 },
+            layers: [{
+                type: 'TextLayer',
+                spec: { shape: { width: 40, height: 20 }, fontFamily: { fontSize: 10 } },
+                data: { value: '' },
+            }],
+        })
+        const { calls, backend } = recordingBackend()
+        renderCanvas(canvas, backend)
+
+        expect(calls.filter((call) => call.op === 'text')).toEqual([
+            { op: 'text', line: '', x: 0, y: 20 },
+        ])
     })
 
     it('autoHeight 文本/QR 的动态高参与盒绘制（盒高非 0，占位盒可见）', () => {

@@ -2,12 +2,24 @@
  * 五原语渲染契约 + 渲染模板（镜像 php-canvas-next AbstractRenderer）：
  * 物化（工单 04 接入）→ begin → 按 priority 序遍历分派 → 容器下钻 → end。
  * 遍历/锚点合成/嵌套几何收在本模板；具体后端只实现五个绘制原语。
+ * 文本布局策略（断行/度量）经 policies 注入，缺省为启发式对齐版（见 layout.ts）。
  */
-import { anchorOffset, contentHeight, contentWidth, layerHeight, layerWidth } from './layout'
+import {
+    anchorOffset,
+    contentHeight,
+    contentWidth,
+    imageOrigin,
+    layerHeight,
+    layerWidth,
+    lineHeightPx,
+    textLines,
+    textOrigin,
+    type TextLayoutPolicies,
+} from './layout'
 import type { Border, Canvas, HorizontalAlign, Layer, VerticalAlign } from './types'
 
 export interface TextDrawOptions {
-    /** 字体路径/URL；空串 = 渲染端内置默认字体 */
+    /** 字体路径/URL；空串/纯数字 = 渲染端内置默认字体 */
     font: string
     fontSize: number
     fontColor: string
@@ -31,9 +43,9 @@ export interface RenderBackend {
         bgColor: string | null,
         border: Border,
     ): void
-    /** 图片：cover 裁切至 width×height 后放置于 (x, y)（工单 03 起被模板调用） */
+    /** 图片：cover 裁切至 width×height 后放置于 (x, y) */
     drawImage(src: string, x: number, y: number, width: number, height: number): void
-    /** 单行文本，(x, y) 为对齐语义锚点（工单 03 起被模板调用） */
+    /** 单行文本，(x, y) 为对齐语义锚点（基线差由后端以字体 metrics 消化） */
     drawText(line: string, x: number, y: number, options: TextDrawOptions): void
 }
 
@@ -56,9 +68,10 @@ export function resolveLayerBox(
     originY: number,
     parentWidth: number,
     parentHeight: number,
+    policies?: TextLayoutPolicies,
 ): LayerBox {
     const width = layerWidth(layer)
-    const height = layerHeight(layer)
+    const height = layerHeight(layer, policies)
     const offset = anchorOffset(layer.position.anchor, parentWidth, parentHeight, width, height)
     const x = originX + offset.x + layer.position.x
     const y = originY + offset.y + layer.position.y
@@ -71,17 +84,64 @@ export function resolveLayerBox(
         contentX: x + layer.shape.padding.left,
         contentY: y + layer.shape.padding.top,
         contentWidth: contentWidth(layer),
-        contentHeight: contentHeight(layer),
+        contentHeight: contentHeight(layer, policies),
     }
 }
 
 /** 渲染整棵结构树；canvas.layers 已按 priority 降序（数组头先画垫底） */
-export function renderCanvas(canvas: Canvas, backend: RenderBackend): void {
+export function renderCanvas(canvas: Canvas, backend: RenderBackend, policies?: TextLayoutPolicies): void {
     backend.begin(canvas.width, canvas.height)
     forEachLayerBox(canvas, (layer, box) => {
         backend.drawRect(box.x, box.y, box.width, box.height, layer.shape.backgroundColor, layer.shape.border)
-    })
+        paintContent(layer, box, backend, policies)
+    }, policies)
     backend.end()
+}
+
+/** 盒绘制之后的内容分派（镜像 PHP paintImage/paintText；QR 内容绘制在工单 04 接入） */
+function paintContent(
+    layer: Layer,
+    box: LayerBox,
+    backend: RenderBackend,
+    policies?: TextLayoutPolicies,
+): void {
+    switch (layer.type) {
+        case 'ImageLayer':
+            // 原始引用为 null 只画盒（未物化/未加载的占位语义）
+            if (layer.src !== null) {
+                const origin = imageOrigin(layer)
+                backend.drawImage(
+                    layer.src,
+                    box.x + origin.x,
+                    box.y + origin.y,
+                    box.contentWidth,
+                    box.contentHeight,
+                )
+            }
+            break
+        case 'TextLayer': {
+            const origin = textOrigin(layer, policies)
+            const posx = box.x + layer.shape.padding.left + origin.x
+            let posy = box.y + layer.shape.padding.top + origin.y
+            for (const line of textLines(layer, policies)) {
+                backend.drawText(line, posx, posy, {
+                    font: layer.font,
+                    fontSize: layer.fontSize,
+                    fontColor: layer.fontColor,
+                    horizontalAlign: layer.align.horizontal,
+                    verticalAlign: layer.align.vertical,
+                    angle: layer.angle,
+                })
+                posy += lineHeightPx(layer)
+            }
+            break
+        }
+        case 'QrCodeLayer':
+            // 二维码按宽正方形铺放（与 PHP 模板一致）随物化在工单 04 接入
+            break
+        default:
+            break
+    }
 }
 
 /**
@@ -91,9 +151,10 @@ export function renderCanvas(canvas: Canvas, backend: RenderBackend): void {
 export function forEachLayerBox(
     canvas: Canvas,
     visit: (layer: Layer, box: LayerBox) => void,
+    policies?: TextLayoutPolicies,
 ): void {
     for (const layer of canvas.layers) {
-        walkLayer(layer, 0, 0, canvas.width, canvas.height, visit)
+        walkLayer(layer, 0, 0, canvas.width, canvas.height, visit, policies)
     }
 }
 
@@ -104,8 +165,9 @@ function walkLayer(
     parentWidth: number,
     parentHeight: number,
     visit: (layer: Layer, box: LayerBox) => void,
+    policies?: TextLayoutPolicies,
 ): void {
-    const box = resolveLayerBox(layer, originX, originY, parentWidth, parentHeight)
+    const box = resolveLayerBox(layer, originX, originY, parentWidth, parentHeight, policies)
     visit(layer, box)
 
     switch (layer.type) {
@@ -113,8 +175,8 @@ function walkLayer(
             // 行纵向堆叠：行高累加推进（PHP paintTable）
             let posy = box.y
             for (const row of layer.rows) {
-                walkLayer(row, box.x, posy, box.width, box.height, visit)
-                posy += layerHeight(row)
+                walkLayer(row, box.x, posy, box.width, box.height, visit, policies)
+                posy += layerHeight(row, policies)
             }
             break
         }
@@ -122,19 +184,18 @@ function walkLayer(
             // 单元格横向排布：单元宽累加推进（PHP paintRow）
             let posx = box.x
             for (const cell of layer.cells) {
-                walkLayer(cell, posx, box.y, box.width, box.height, visit)
+                walkLayer(cell, posx, box.y, box.width, box.height, visit, policies)
                 posx += layerWidth(cell)
             }
             break
         }
         case 'TableCellLayer':
             // 内容层与单元格同原点（PHP paintCell）
-            if (layer.content) walkLayer(layer.content, box.x, box.y, box.width, box.height, visit)
+            if (layer.content) walkLayer(layer.content, box.x, box.y, box.width, box.height, visit, policies)
             break
         case 'ImageLayer':
         case 'TextLayer':
         case 'QrCodeLayer':
-            // 工单 02 占位盒：只画盒；内容绘制（cover 图/断行文本/QR）在工单 03、04 接入
             break
     }
 }
