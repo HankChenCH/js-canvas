@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { decodeGraph, qrImageSrc, renderCanvas } from '../../src/index'
-import type { Border, RenderBackend } from '../../src/index'
+import { decodeGraph, qrImageSrc, renderCanvas, resolveChildAt } from '../../src/index'
+import type { Border, Layer, RenderBackend } from '../../src/index'
 
 interface CallRecord {
     op: 'begin' | 'end' | 'rect' | 'image' | 'text'
@@ -333,5 +333,60 @@ describe('五原语渲染模板', () => {
 
     it('NO_BORDER 常量即无边框盒', () => {
         expect(NO_BORDER).toEqual({ top: null, bottom: null, left: null, right: null })
+    })
+})
+
+describe('resolveChildAt（容器子层随机访问下钻：与 walkLayer 同一几何）', () => {
+    /** 表 (96,1120) 600×300：行零 90 高双格 300 宽、首格含内容；行一 110 高 */
+    const canvas = decodeGraph({
+        canvas: { width: 2400, height: 1500 },
+        layers: [{
+            type: 'TableLayer',
+            spec: { shape: { width: 600, height: 300 }, position: { x: 96, y: 1120 } },
+            rows: [
+                {
+                    type: 'TableRowLayer',
+                    spec: { shape: { width: 600, height: 90 } },
+                    cells: [
+                        {
+                            type: 'TableCellLayer',
+                            spec: { shape: { width: 300, height: 90 } },
+                            content: { type: 'TextLayer', spec: { shape: { width: 100, height: 40 }, position: { x: 5, y: 5 } }, data: { value: 'x' } },
+                        },
+                        { type: 'TableCellLayer', spec: { shape: { width: 300, height: 90 } } },
+                    ],
+                },
+                {
+                    type: 'TableRowLayer',
+                    spec: { shape: { width: 600, height: 110 } },
+                    cells: [{ type: 'TableCellLayer', spec: { shape: { width: 300, height: 110 } } }],
+                },
+            ],
+        }],
+    })
+    const table = canvas.layers[0]!
+    if (table.type !== 'TableLayer') throw new Error('fixture: 表格层')
+    const tableBox = { x: 96, y: 1120, width: 600, height: 300, contentX: 96, contentY: 1120, contentWidth: 600, contentHeight: 300 }
+
+    it('行纵向累加、格横向累加、格内容随格原点', () => {
+        const row1 = resolveChildAt(table, tableBox, 'rows', 1)
+        expect(row1!.box).toMatchObject({ x: 96, y: 1210, width: 600, height: 110 })
+
+        const row0 = resolveChildAt(table, tableBox, 'rows', 0)!
+        const cell1 = resolveChildAt(row0.layer as Layer, row0.box, 'cells', 1)
+        expect(cell1!.box).toMatchObject({ x: 396, y: 1120, width: 300, height: 90 })
+
+        const cell0 = resolveChildAt(row0.layer as Layer, row0.box, 'cells', 0)!
+        const content = resolveChildAt(cell0.layer as Layer, cell0.box, 'content', 0)
+        // 解码契约：格内容宽/高与格同步（addContentLayer 副作用，镜像 PHP），
+        // 内容盒 = 格原点 + 内容 position 偏移 + 格尺寸
+        expect(content!.box).toMatchObject({ x: 101, y: 1125, width: 300, height: 90 })
+    })
+
+    it('越界/形态不符返回 null', () => {
+        expect(resolveChildAt(table, tableBox, 'rows', 2)).toBeNull()
+        expect(resolveChildAt(table, tableBox, 'content', 0)).toBeNull()
+        const row0 = resolveChildAt(table, tableBox, 'rows', 0)!
+        expect(resolveChildAt(row0.layer as Layer, row0.box, 'content', 0)).toBeNull() // 无内容格
     })
 })

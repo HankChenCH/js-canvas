@@ -30,6 +30,7 @@ export {
     forEachLayerBox,
     qrImageSrc,
     renderCanvas,
+    resolveChildAt,
     resolveLayerBox,
 } from './render'
 export {

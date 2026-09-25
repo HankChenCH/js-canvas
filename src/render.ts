@@ -171,6 +171,43 @@ export function forEachLayerBox(
     }
 }
 
+/**
+ * 容器子层的随机访问下钻：行纵向累加 y（前序行高之和）、格横向累加 x（前序格宽之和）、
+ * 格内容与格同原点（PHP paintTable/paintRow/paintCell 同式）。命中测试、gizmo、
+ * 路径寻盒等按索引直达子层的工具层共用，保证与顺序遍历（walkLayer）的几何不漂移；
+ * walkLayer 本体保持 O(n) 顺序推进不经此。
+ */
+export function resolveChildAt(
+    parent: Layer,
+    parentBox: LayerBox,
+    key: 'rows' | 'cells' | 'content',
+    index: number,
+    policies?: TextLayoutPolicies,
+): { layer: Layer; box: LayerBox } | null {
+    if (key === 'content') {
+        if (parent.type !== 'TableCellLayer' || parent.content === null) return null
+        return {
+            layer: parent.content,
+            box: resolveLayerBox(parent.content, parentBox.x, parentBox.y, parentBox.width, parentBox.height, policies),
+        }
+    }
+
+    let children: readonly Layer[] | null = null
+    if (key === 'rows') children = parent.type === 'TableLayer' ? parent.rows : null
+    if (key === 'cells') children = parent.type === 'TableRowLayer' ? parent.cells : null
+    if (!children || !Number.isSafeInteger(index) || index < 0 || index >= children.length) return null
+
+    let originX = parentBox.x
+    let originY = parentBox.y
+    for (let i = 0; i < index; i += 1) {
+        const prev = children[i]!
+        if (key === 'rows') originY += layerHeight(prev, policies)
+        else originX += layerWidth(prev)
+    }
+    const layer = children[index]!
+    return { layer, box: resolveLayerBox(layer, originX, originY, parentBox.width, parentBox.height, policies) }
+}
+
 function walkLayer(
     layer: Layer,
     originX: number,
