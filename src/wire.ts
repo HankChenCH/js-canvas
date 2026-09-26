@@ -58,10 +58,16 @@ export interface WireSpec {
 }
 
 export interface WireData {
-    /** 表达式引擎已裁撤，恒 StaticValue；expression 仅 TextLayer 保留空串占位 */
-    valueType?: 'StaticValue'
+    /**
+     * 表达式标记（table-layer-v2 spec §3.1）：'ExpressionValue' = 已标记，
+     * value 恒镜像 expression 原文；'StaticValue' = 字面直通。
+     * expression 键 Image/Qr 条件写键（未标记不带键）、Text 恒写。
+     */
+    valueType?: 'StaticValue' | 'ExpressionValue'
     expression?: string
     value?: string | null
+    /** TableLayer 模板态专属：取行路径（点路径字符串），data 键此时仅含该键 */
+    rowsPath?: string
 }
 
 export interface WireLayerNode {
@@ -71,7 +77,9 @@ export interface WireLayerNode {
     data?: WireData
     /** TableLayer 专属 */
     rows?: WireLayerNode[]
-    /** TableRowLayer 专属 */
+    /** TableLayer 模板态专属（V2）：整行模板 graph（内嵌 type: 'TableRowTemplate'） */
+    template?: WireLayerNode
+    /** TableRowLayer / TableRowTemplate 专属 */
     cells?: WireLayerNode[]
     /** TableCellLayer 专属 */
     content?: WireLayerNode | null

@@ -53,9 +53,15 @@ function encodeLayerNode(layer: Layer): WireLayerNode {
 
     switch (layer.type) {
         case 'ImageLayer':
-            return { ...base, data: { valueType: 'StaticValue', value: layer.src } }
+            // 标记态三键（value 恒镜像 expression 原文）；未标记保持现状两键（条件写键，保三端字节 parity）
+            return {
+                ...base,
+                data: layer.expression !== null
+                    ? { valueType: 'ExpressionValue', expression: layer.expression, value: layer.src }
+                    : { valueType: 'StaticValue', value: layer.src },
+            }
         case 'TextLayer':
-            // 无损：font 保留完整原始值；expression 为表达式引擎裁撤后的空串占位
+            // 无损：font 保留完整原始值；标记态三键，未标记恒写 expression 空串占位（现状形态）
             return {
                 ...base,
                 spec: {
@@ -68,14 +74,36 @@ function encodeLayerNode(layer: Layer): WireLayerNode {
                         autowrap: layer.autowrap,
                     },
                 },
-                data: { valueType: 'StaticValue', expression: '', value: layer.text },
+                data: layer.expression !== null
+                    ? { valueType: 'ExpressionValue', expression: layer.expression, value: layer.text }
+                    : { valueType: 'StaticValue', expression: '', value: layer.text },
             }
         case 'QrCodeLayer':
-            // 无损：value 恒携带内容，与是否已物化无关
-            return { ...base, data: { valueType: 'StaticValue', value: layer.value } }
+            // 无损：value 恒携带内容，与是否已物化无关；标记态三键、未标记两键（条件写键）
+            return {
+                ...base,
+                data: layer.expression !== null
+                    ? { valueType: 'ExpressionValue', expression: layer.expression, value: layer.value }
+                    : { valueType: 'StaticValue', value: layer.value },
+            }
         case 'TableLayer':
+            // 模板态：条件写键 data/template，不写 rows（XOR，spec §2.2）；rowsPath 非空
+            // 才写 data（键值仅 rowsPath）——不产出违反自身约束的中间 wire 形态；
+            // 写键序 data → template 对齐 PHP graph()。V1 态：现状 rows 分支，不写
+            // data/template（字节面零差异）
+            if (layer.template !== null) {
+                const node: WireLayerNode = { ...base }
+                if (layer.rowsPath !== '') {
+                    node.data = { rowsPath: layer.rowsPath }
+                }
+                node.template = encodeLayerNode(layer.template)
+                return node
+            }
             return { ...base, rows: layer.rows.map(encodeLayerNode) }
         case 'TableRowLayer':
+            return { ...base, cells: layer.cells.map(encodeLayerNode) }
+        case 'TableRowTemplate':
+            // 单行循环体模板：与 TableRowLayer 同构（cells 容器）
             return { ...base, cells: layer.cells.map(encodeLayerNode) }
         case 'TableCellLayer':
             return { ...base, content: layer.content ? encodeLayerNode(layer.content) : null }

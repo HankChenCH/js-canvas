@@ -1,5 +1,5 @@
 /**
- * 领域类型：严格、必填、6 种 type 可辨识联合。由 wire 解码而来（decode.ts），
+ * 领域类型：严格、必填、7 种 type 可辨识联合。由 wire 解码而来（decode.ts），
  * 编辑器内核与渲染端只消费这层；宽松的 wire 形态见 wire.ts。
  */
 
@@ -11,6 +11,7 @@ export const LAYER_TYPES = [
     'TableLayer',
     'TableRowLayer',
     'TableCellLayer',
+    'TableRowTemplate',
 ] as const
 
 export type LayerType = (typeof LAYER_TYPES)[number]
@@ -96,11 +97,15 @@ export interface ImageLayer extends LayerBase {
     readonly type: 'ImageLayer'
     /** 原始资源引用（URL/路径）；物化结果不进文档（图层 setter 禁 I/O 红线的编辑器延伸） */
     readonly src: string | null
+    /** 数据表达式标记：null = 未标记（字面直通）；非 null = 已标记，src 恒镜像表达式原文 */
+    readonly expression: string | null
 }
 
 export interface TextLayer extends LayerBase {
     readonly type: 'TextLayer'
     readonly text: string
+    /** 数据表达式标记：null = 未标记；非 null = 已标记，text 恒镜像表达式原文 */
+    readonly expression: string | null
     /** 字体路径/URL；空串 = 渲染端内置默认字体 */
     readonly font: string
     readonly fontSize: number
@@ -114,15 +119,34 @@ export interface QrCodeLayer extends LayerBase {
     readonly type: 'QrCodeLayer'
     /** 二维码内容；图像由物化阶段生成，不进文档 */
     readonly value: string
+    /** 数据表达式标记：null = 未标记；非 null = 已标记，value 恒镜像表达式原文 */
+    readonly expression: string | null
 }
 
 export interface TableLayer extends LayerBase {
     readonly type: 'TableLayer'
+    /**
+     * 行模板声明（TableLayer V2）：null = V1 形态（rows 全量行预声明）；
+     * 非 null = 模板态，与 rows XOR（wire 上 template ⊕ rows，decode 期强校验）
+     */
+    readonly template: TableRowTemplateLayer | null
+    /** 取行路径（点路径字符串）：仅模板态有意义（展开时从数据集定位行数组）；V1 恒 '' */
+    readonly rowsPath: string
     readonly rows: readonly TableRowLayer[]
 }
 
 export interface TableRowLayer extends LayerBase {
     readonly type: 'TableRowLayer'
+    readonly cells: readonly TableCellLayer[]
+}
+
+/**
+ * 表格行模板（TableLayer V2）：单行循环体声明，与 TableRowLayer 同构（cells 容器）。
+ * 仅合法出现在 TableLayer 的 template 字段内（出现在画布图层序列 / rows / cells /
+ * content 属非法 wire，工厂宽容解码不拒绝，契约禁止）
+ */
+export interface TableRowTemplateLayer extends LayerBase {
+    readonly type: 'TableRowTemplate'
     readonly cells: readonly TableCellLayer[]
 }
 
@@ -138,6 +162,7 @@ export type Layer =
     | TableLayer
     | TableRowLayer
     | TableCellLayer
+    | TableRowTemplateLayer
 
 /** 画布：纯结构容器。layers 按 priority 降序（等优先级保持插入序），数组头先画垫底 */
 export interface Canvas {

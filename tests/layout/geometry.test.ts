@@ -59,6 +59,7 @@ describe('动态尺寸（layerHeight/内容盒）', () => {
             align: { horizontal: 'left', vertical: 'bottom' },
             position: { x: 0, y: 0, anchor: 'top-left' },
             text: '',
+            expression: null,
             font: '',
             fontSize: 12,
             fontColor: '#000000',
@@ -116,6 +117,7 @@ describe('动态尺寸（layerHeight/内容盒）', () => {
             align: { horizontal: 'center', vertical: 'center' },
             position: { x: 0, y: 0, anchor: 'top-left' },
             src: null,
+            expression: null,
         } as const
 
         expect(contentWidth(image)).toBe(60)
@@ -139,6 +141,7 @@ describe('动态尺寸（layerHeight/内容盒）', () => {
             align: { horizontal: 'left', vertical: 'top' },
             position: { x: 0, y: 0, anchor: 'top-left' },
             value: 'https://example.com',
+            expression: null,
         } as const
         expect(layerHeight(qr)).toBe(40)
     })
@@ -160,6 +163,7 @@ describe('动态尺寸（layerHeight/内容盒）', () => {
             align: { horizontal: 'left', vertical: 'top' },
             position: { x: 0, y: 0, anchor: 'top-left' },
             value: 'https://example.com',
+            expression: null,
         } as const
         expect(layerHeight(autoQr)).toBe(60)
     })

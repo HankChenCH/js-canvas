@@ -5,6 +5,7 @@
  * - 数字收整向零截断（PHP intval/(float)）
  * - 'auto' 标志仅在 width/height 键在场时生效（PHP array_key_exists 门）
  * - 未知图层 type 报错（不静默丢弃）；解码时镜像 addRow/addCell/addContentLayer 的容器副作用
+ * - 表格模板态与表达式标记逐条镜像 PHP V2 fromGraph（table-layer-v2 spec §2/§3.1）
  */
 import { layerHeight } from './layout'
 import {
@@ -21,6 +22,7 @@ import {
     type Position,
     type Shape,
     type TableRowLayer,
+    type TableRowTemplateLayer,
     type TableCellLayer,
 } from './types'
 
@@ -31,6 +33,26 @@ export class UnknownLayerTypeError extends Error {
         super(`未知图层类型: ${type}`)
         this.name = 'UnknownLayerTypeError'
         this.type = type
+    }
+}
+
+/** template ⊕ rows 双键同现（spec §2.2；PHP DecodeException code 同名） */
+export class TemplateRowsConflictError extends Error {
+    readonly code = 'template_rows_conflict'
+
+    constructor() {
+        super('template_rows_conflict: template 与 rows 键不得同时出现')
+        this.name = 'TemplateRowsConflictError'
+    }
+}
+
+/** 模板态缺 data.rowsPath（spec §3.3；PHP DecodeException code 同名） */
+export class RowsPathMissingError extends Error {
+    readonly code = 'rows_path_missing'
+
+    constructor() {
+        super('rows_path_missing: 模板态表格缺少 data.rowsPath')
+        this.name = 'RowsPathMissingError'
     }
 }
 
@@ -105,6 +127,7 @@ const TYPE_ALIGN_DEFAULTS: Record<LayerType, Align> = {
     TableLayer: { horizontal: 'left', vertical: 'top' },
     TableRowLayer: { horizontal: 'left', vertical: 'top' },
     TableCellLayer: { horizontal: 'left', vertical: 'top' },
+    TableRowTemplate: { horizontal: 'left', vertical: 'top' },
 }
 
 interface LayerBaseFields {
@@ -221,14 +244,32 @@ function decodeBase(node: Record<string, unknown>, type: LayerType): LayerBaseFi
     }
 }
 
+/**
+ * 表达式标记解码（三内容层共用，镜像 PHP fromGraph 的 data 分支，spec §3.1）：
+ * 标记 ⟺ valueType === 'ExpressionValue' 且 expression 键在场（PHP isset 门：
+ * null 不算、'' 算）。标记态返回表达式原文——值字段恒镜像原文，wire 的 value
+ * 不读（分歧时归一，PHP setExpression 同语义）；未标记返回 null。
+ */
+function decodeExpressionMark(data: Record<string, unknown> | null): string | null {
+    if (data?.valueType !== 'ExpressionValue') return null
+    return data.expression == null ? null : String(data.expression)
+}
+
 function decodeImageLayer(node: Record<string, unknown>): Layer {
     const data = asRecord(node.data)
+    const expression = decodeExpressionMark(data)
+    if (expression !== null) {
+        // 标记态：src := expression 原样（'' 不做 →null 归一，PHP rawImg 同门）
+        return { type: 'ImageLayer', ...decodeBase(node, 'ImageLayer'), src: expression, expression }
+    }
+
     const raw = data?.value
     return {
         type: 'ImageLayer',
         ...decodeBase(node, 'ImageLayer'),
         // 空串与 null 归 null（PHP setImage 语义）；其余弱转字符串
         src: raw == null || raw === '' ? null : String(raw),
+        expression: null,
     }
 }
 
@@ -236,12 +277,15 @@ function decodeTextLayer(node: Record<string, unknown>): Layer {
     const spec = asRecord(node.spec) ?? {}
     const font = asRecord(spec.fontFamily) ?? {}
     const data = asRecord(node.data)
+    const expression = decodeExpressionMark(data)
     const raw = data?.value
 
     return {
         type: 'TextLayer',
         ...decodeBase(node, 'TextLayer'),
-        text: raw == null ? '' : String(raw),
+        // 标记态 text := expression；未标记按现状读取（null → ''）
+        text: expression !== null ? expression : raw == null ? '' : String(raw),
+        expression,
         font: font.font == null ? '' : String(font.font),
         fontSize: font.fontSize != null ? toInt(font.fontSize) : 12,
         fontColor: font.fontColor == null ? '#000000' : String(font.fontColor),
@@ -252,15 +296,48 @@ function decodeTextLayer(node: Record<string, unknown>): Layer {
 
 function decodeQrCodeLayer(node: Record<string, unknown>): Layer {
     const data = asRecord(node.data)
+    const expression = decodeExpressionMark(data)
     return {
         type: 'QrCodeLayer',
         ...decodeBase(node, 'QrCodeLayer'),
-        value: data?.value == null ? '' : String(data.value),
+        value: expression !== null ? expression : data?.value == null ? '' : String(data.value),
+        expression,
     }
 }
 
 function decodeTableLayer(node: Record<string, unknown>): Layer {
     const base = decodeBase(node, 'TableLayer')
+
+    // hasTemplate 镜像 PHP array_key_exists && !== null 门：template: null 不算模板态
+    const hasTemplate = Object.hasOwn(node, 'template') && node.template != null
+    if (hasTemplate && Object.hasOwn(node, 'rows')) {
+        // XOR 强校验（spec §2.2）：rows 键在场即算，值任意（含 [] / null）
+        throw new TemplateRowsConflictError()
+    }
+
+    if (hasTemplate) {
+        // rowsPath 须为非空 string（data 缺失 / 键缺失 / 空串 / 非串都算缺，PHP is_string 同门）
+        const rowsPath = asRecord(node.data)?.rowsPath
+        if (typeof rowsPath !== 'string' || rowsPath === '') {
+            throw new RowsPathMissingError()
+        }
+
+        // 模板装配：rows 空数组落域；行宽 := 表宽关 autoWidth（setTemplate→setWidth
+        // 镜像）；高度豁免在 decodeTableRowTemplateLayer 内（spec §2.3）
+        const template = decodeTableRowTemplateLayer(node.template)
+        return {
+            type: 'TableLayer',
+            ...base,
+            template: {
+                ...template,
+                shape: { ...template.shape, width: base.shape.width, autoWidth: false },
+            },
+            rows: [],
+            rowsPath,
+        }
+    }
+
+    // V1 现状逻辑零改动；wire 的 data 键不读（PHP V1 分支同门），域 template null / rowsPath ''
     const rows: TableRowLayer[] = []
     const rowsWire = Array.isArray(node.rows) ? node.rows : []
     for (const rowWire of rowsWire) {
@@ -272,7 +349,7 @@ function decodeTableLayer(node: Record<string, unknown>): Layer {
         })
     }
 
-    return { type: 'TableLayer', ...base, rows }
+    return { type: 'TableLayer', ...base, template: null, rowsPath: '', rows }
 }
 
 function decodeTableRowLayer(node: unknown): TableRowLayer {
@@ -332,7 +409,45 @@ function decodeTableCellLayer(node: unknown): TableCellLayer {
     return { type: 'TableCellLayer', ...base, content: forceHeight(content, base.shape.height) }
 }
 
-/** 6 种 type 字面量注册表：type → 解码器（未知 type 由此报错） */
+/**
+ * 行模板装配（TableLayer V2，镜像 TableRowTemplate::fromGraph + TableCellLayer::templateFromGraph）：
+ * 宽度耦合沿用（模板格内容宽 := 格宽关 autoWidth，addTemplateContentLayer 镜像）、
+ * 高度耦合全豁免（行/格/内容的声明高与 autoHeight 原样保留——不走 V1 的行高取最高格、
+ * 格 auto 采纳/固定压平，实例高度由展开阶段定稿，spec §2.3）
+ */
+function decodeTableRowTemplateLayer(node: unknown): TableRowTemplateLayer {
+    const rec = asRecord(node) ?? {}
+    const base = decodeBase(rec, 'TableRowTemplate')
+    const cells: TableCellLayer[] = []
+    const cellsWire = Array.isArray(rec.cells) ? rec.cells : []
+    for (const cellWire of cellsWire) {
+        cells.push(decodeTemplateCellLayer(cellWire))
+    }
+
+    // addCell 副作用：只挂格，无任何行高耦合（PHP TableRowTemplate::addCell 同门）
+    return { type: 'TableRowTemplate', ...base, cells }
+}
+
+function decodeTemplateCellLayer(node: unknown): TableCellLayer {
+    const rec = asRecord(node) ?? {}
+    const base = decodeBase(rec, 'TableCellLayer')
+
+    // content 与 PHP !empty 同门：''/'0'/0/false/[] 皆视为无内容
+    if (isPhpEmpty(rec.content)) {
+        return { type: 'TableCellLayer', ...base, content: null }
+    }
+
+    // 内容层经通用 decodeLayer（嵌套表/模板都宽容，LayerFactory 同面）；
+    // addTemplateContentLayer 副作用：只有宽度同步，格与内容的声明高/autoHeight 原样
+    const content = decodeLayer(rec.content)
+    return {
+        type: 'TableCellLayer',
+        ...base,
+        content: { ...content, shape: { ...content.shape, width: base.shape.width, autoWidth: false } },
+    }
+}
+
+/** 7 种 type 字面量注册表：type → 解码器（未知 type 由此报错） */
 const LAYER_DECODERS: Record<LayerType, (node: Record<string, unknown>) => Layer> = {
     ImageLayer: decodeImageLayer,
     TextLayer: decodeTextLayer,
@@ -340,6 +455,9 @@ const LAYER_DECODERS: Record<LayerType, (node: Record<string, unknown>) => Layer
     TableLayer: decodeTableLayer,
     TableRowLayer: decodeTableRowLayer,
     TableCellLayer: decodeTableCellLayer,
+    // 工厂宽容面（spec §2.6「适配端可选拒绝」取不拒绝）：出现在画布序列/rows/cells/
+    // content 属非法 wire 但可解码；无表宽上下文 → 不同步行宽
+    TableRowTemplate: decodeTableRowTemplateLayer,
 }
 
 /** 单层解码（LayerFactory 对应物）；type 缺失或未知抛 UnknownLayerTypeError */

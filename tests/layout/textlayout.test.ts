@@ -31,6 +31,7 @@ function textLayer(overrides: Partial<TextLayer>): TextLayer {
         align: { horizontal: 'left', vertical: 'bottom' },
         position: { x: 0, y: 0, anchor: 'top-left' },
         text: '',
+        expression: null,
         font: '',
         fontSize: 12,
         fontColor: '#000000',
@@ -69,6 +70,7 @@ function imageLayer(overrides: {
         },
         position: { x: 0, y: 0, anchor: 'top-left' as const },
         src: null,
+        expression: null as string | null,
     }
 }
 
