@@ -72,6 +72,13 @@ export interface WireData {
 
 export interface WireLayerNode {
     type?: string
+    /**
+     * 用户命名（layer-panel-ux 工单 01）：仅非空写键，缺省态键省略（保往返恒等）。
+     * 键序钉在 type 之后、priority 之前（三端一致）
+     */
+    name?: string
+    /** 显隐设定（layer-panel-ux 工单 01）：仅 false 写键，true 形态由解码侧归一为缺省 */
+    visible?: boolean
     priority?: number
     spec?: WireSpec
     data?: WireData

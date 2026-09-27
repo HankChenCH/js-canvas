@@ -131,6 +131,10 @@ const TYPE_ALIGN_DEFAULTS: Record<LayerType, Align> = {
 }
 
 interface LayerBaseFields {
+    /** 用户命名（layer-panel-ux 工单 01）：缺省 ''（wire 仅非空写键） */
+    name: string
+    /** 显隐设定（layer-panel-ux 工单 01）：缺省 true（wire 仅 false 写键） */
+    visible: boolean
     priority: number
     shape: Shape
     align: Align
@@ -228,6 +232,10 @@ function decodeBase(node: Record<string, unknown>, type: LayerType): LayerBaseFi
     }
 
     return {
+        // name/visible 条件键（layer-panel-ux 工单 01）：键在场才生效（null/缺键回填缺省，
+        // 镜像 PHP isset 门）；缺省值形态（空串、true）合法，编码侧会归一省略
+        name: node.name != null ? String(node.name) : '',
+        visible: node.visible != null ? toBool(node.visible) : true,
         priority: node.priority != null ? toInt(node.priority) : 0,
         shape: {
             width,

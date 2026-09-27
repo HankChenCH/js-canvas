@@ -45,6 +45,8 @@ describe('动态尺寸（layerHeight/内容盒）', () => {
     function textLayer(overrides: Partial<TextLayer>): TextLayer {
         return {
             type: 'TextLayer',
+            name: '',
+            visible: true,
             priority: 0,
             shape: {
                 width: 100,
@@ -103,6 +105,8 @@ describe('动态尺寸（layerHeight/内容盒）', () => {
     it('内容盒扣减 padding 且向零截断（平移 testContentSizeSubtractsPadding）', () => {
         const image = {
             type: 'ImageLayer',
+            name: '' as const,
+            visible: true as const,
             priority: 0,
             shape: {
                 width: 100,
@@ -127,6 +131,8 @@ describe('动态尺寸（layerHeight/内容盒）', () => {
     it('QR 声明高优先生效（平移 testDeclaredHeightWinsWhenNotAuto）', () => {
         const qr = {
             type: 'QrCodeLayer',
+            name: '' as const,
+            visible: true as const,
             priority: 0,
             shape: {
                 width: 80,
@@ -149,6 +155,8 @@ describe('动态尺寸（layerHeight/内容盒）', () => {
     it('QR 无有效高时按宽兜底正方形（平移 testHeightFallsBackToWidth）', () => {
         const autoQr = {
             type: 'QrCodeLayer',
+            name: '' as const,
+            visible: true as const,
             priority: 0,
             shape: {
                 width: 60,

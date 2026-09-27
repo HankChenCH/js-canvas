@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { decodeGraph, decodeLayer, encodeGraph, encodeLayer } from '../../src/index'
-import type { QrCodeLayer, TableLayer, TextLayer, WireGraph, WireLayerNode } from '../../src/index'
+import type { ImageLayer, QrCodeLayer, TableLayer, TextLayer, WireGraph, WireLayerNode } from '../../src/index'
 
 /** canonical wire 造数器：键级对齐 php-canvas-next graph() 输出（往返恒等的输入形态） */
 function baseNode(type: WireLayerNode['type'], overrides: Record<string, unknown> = {}): WireLayerNode {
@@ -312,5 +312,62 @@ describe('graph 往返恒等', () => {
         expect((rows[0]!.cells as WireLayerNode[])[0]!.spec?.shape?.backgroundColor).toBe('#f00')
         expect((rows[1]!.cells as WireLayerNode[])[0]!.spec?.shape?.backgroundColor).toBe('#0f0')
         expect(rows[0]!.cells).toHaveLength(1)
+    })
+})
+
+/**
+ * name/visible 契约（layer-panel-ux 工单 01，PHP AbstractLayerTest::testNameVisible* 同款口径）：
+ * 缺省态键省略、带值条件写键（键序 type → name → visible → priority，三端字节 parity）、
+ * 解码读取与归一、graph → 解码 → 编码往返恒等
+ */
+describe('name/visible 条件键', () => {
+    it('缺省图层编码不落 name/visible 键（字节面与无字段版本一致）', () => {
+        const graph = encodeLayer(decodeLayer(baseNode('ImageLayer', { data: { valueType: 'StaticValue', value: null } })))
+        expect(JSON.stringify(graph)).not.toContain('"name"')
+        expect(JSON.stringify(graph)).not.toContain('"visible"')
+        expect(graph.name).toBeUndefined()
+        expect(graph.visible).toBeUndefined()
+    })
+
+    it('解码回填缺省：无键 → name 空、visible true', () => {
+        const layer = decodeLayer(baseNode('ImageLayer')) as ImageLayer
+        expect(layer.name).toBe('')
+        expect(layer.visible).toBe(true)
+    })
+
+    it('带值编码条件写键且键序钉在 type 之后、priority 之前（JSON 字节面锁定）', () => {
+        const doc: ImageLayer = {
+            ...(decodeLayer(baseNode('ImageLayer')) as ImageLayer),
+            name: '标题层',
+            visible: false,
+        }
+        const encoded = JSON.stringify(encodeLayer(doc))
+        // 键序 + 条件写键逐字节断言（Go layer 包同名断言、PHP testNameVisibleByteFace 同口径）
+        expect(encoded.startsWith('{"type":"ImageLayer","name":"标题层","visible":false,"priority":0,')).toBe(true)
+
+        // 往返恒等
+        expect(encodeLayer(decodeLayer(encodeLayer(doc)))).toEqual(encodeLayer(doc))
+    })
+
+    it('第三方缺省值形态（name 空串、visible true）解码后编码归一省略', () => {
+        const wire = baseNode('ImageLayer', { name: '', visible: true })
+        const graph = encodeLayer(decodeLayer(wire))
+        expect(graph.name).toBeUndefined()
+        expect(graph.visible).toBeUndefined()
+    })
+
+    it('表格子树往返保留 name/visible（容器子层合法携带，契约面仅根图层使用）', () => {
+        const wire = baseNode('TableLayer', {
+            rows: [
+                {
+                    ...baseNode('TableRowLayer', { name: '行一', visible: false, cells: [] }),
+                },
+            ],
+        })
+
+        const rebuilt = decodeLayer(wire) as TableLayer
+        expect(rebuilt.rows[0]!.name).toBe('行一')
+        expect(rebuilt.rows[0]!.visible).toBe(false)
+        expect(encodeLayer(rebuilt)).toEqual(wire)
     })
 })

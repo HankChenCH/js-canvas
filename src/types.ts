@@ -85,8 +85,18 @@ export interface Position {
     readonly y: number
 }
 
-/** 图层公共设定 */
+/** 图层公共设定（wire 键 name/visible 见 LayerBase 字段注释） */
 export interface LayerBase {
+    /**
+     * 用户命名（layer-panel-ux 工单 01）：缺省 ''；wire 上仅非空写键（缺省态字节面与
+     * 无字段版本一致，保往返恒等）
+     */
+    readonly name: string
+    /**
+     * 显隐设定（layer-panel-ux 工单 01）：缺省 true；wire 上仅 false 写键；
+     * 渲染循环跳过 false 的根图层（隐藏 = 最终输出排除，Figma 语义）
+     */
+    readonly visible: boolean
     readonly priority: number
     readonly shape: Shape
     readonly align: Align

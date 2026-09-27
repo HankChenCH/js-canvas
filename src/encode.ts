@@ -1,6 +1,8 @@
 /**
  * 领域 → wire 编码：canonical 输出，键级对齐 php-canvas-next 的 graph()。
- * graph → 解码 → 编码往返恒等（硬契约）的另一半；缺省字段全量落键。
+ * graph → 解码 → 编码往返恒等（硬契约）的另一半；缺省字段全量落键——
+ * 例外是 name/visible 条件键（layer-panel-ux 工单 01）：仅 name 非空、visible 为 false
+ * 时写键，缺省图层的 wire 字节面与无字段版本完全一致。
  */
 import type {
     Border,
@@ -16,6 +18,10 @@ function encodeBorderSide(side: Border['top']): WireBorderSide | null {
 function encodeLayerNode(layer: Layer): WireLayerNode {
     const base: WireLayerNode = {
         type: layer.type,
+        // name/visible 条件写键（layer-panel-ux 工单 01）：name 仅非空、visible 仅 false，
+        // 键序钉在 type 之后、priority 之前（三端字节 parity）；缺省态不落键
+        ...(layer.name !== '' ? { name: layer.name } : {}),
+        ...(layer.visible === false ? { visible: false } : {}),
         priority: layer.priority,
         spec: {
             shape: {

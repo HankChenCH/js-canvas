@@ -17,6 +17,8 @@ import {
 function textLayer(overrides: Partial<TextLayer>): TextLayer {
     return {
         type: 'TextLayer',
+        name: '',
+        visible: true,
         priority: 0,
         shape: {
             width: 100,
@@ -53,6 +55,8 @@ function imageLayer(overrides: {
     const padding = overrides.padding ?? { top: 0, bottom: 0, left: 0, right: 0 }
     return {
         type: 'ImageLayer' as const,
+        name: '',
+        visible: true,
         priority: 0,
         shape: {
             width,

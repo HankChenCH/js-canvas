@@ -176,6 +176,10 @@ function paintContent(
 /**
  * 按渲染模板的同一遍历与几何访问每层（含容器下钻：行纵向/格横向/内容同原点推进）。
  * gizmo、命中测试、目验辅助等工具层共用，保证与绘制几何不漂移。
+ *
+ * 根层遍历跳过 visible=false（layer-panel-ux 工单 01，隐藏 = 最终输出排除，Figma 语义）：
+ * 与 PHP AbstractRenderer::render / Go renderer.Render 同门；容器子层不下钻显隐
+ * （显隐面仅根图层）。
  */
 export function forEachLayerBox(
     canvas: Canvas,
@@ -183,6 +187,7 @@ export function forEachLayerBox(
     policies?: TextLayoutPolicies,
 ): void {
     for (const layer of canvas.layers) {
+        if (layer.visible === false) continue
         walkLayer(layer, 0, 0, canvas.width, canvas.height, visit, policies)
     }
 }
