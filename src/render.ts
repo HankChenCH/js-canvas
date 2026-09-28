@@ -197,11 +197,15 @@ export function forEachLayerBox(
  * 格内容与格同原点（PHP paintTable/paintRow/paintCell 同式）。命中测试、gizmo、
  * 路径寻盒等按索引直达子层的工具层共用，保证与顺序遍历（walkLayer）的几何不漂移；
  * walkLayer 本体保持 O(n) 顺序推进不经此。
+ *
+ * 'template' 段（无下标，index 忽略）：下钻到表的内嵌行模板，盒与首行同位
+ * （表原点）——编辑器 gizmo/寻层对模板子树的几何解析与预览视图行（置于表格
+ * 顶部第一行位）共用同一推进公式，两侧不漂移。
  */
 export function resolveChildAt(
     parent: Layer,
     parentBox: LayerBox,
-    key: 'rows' | 'cells' | 'content',
+    key: 'rows' | 'cells' | 'content' | 'template',
     index: number,
     policies?: TextLayoutPolicies,
 ): { layer: Layer; box: LayerBox } | null {
@@ -213,9 +217,20 @@ export function resolveChildAt(
         }
     }
 
+    if (key === 'template') {
+        if (parent.type !== 'TableLayer' || parent.template === null) return null
+        return {
+            layer: parent.template,
+            box: resolveLayerBox(parent.template, parentBox.x, parentBox.y, parentBox.width, parentBox.height, policies),
+        }
+    }
+
     let children: readonly Layer[] | null = null
     if (key === 'rows') children = parent.type === 'TableLayer' ? parent.rows : null
-    if (key === 'cells') children = parent.type === 'TableRowLayer' ? parent.cells : null
+    // 行模板的 cells 容器与具体行同构（编辑器经模板段寻格，几何同一公式）
+    if (key === 'cells') {
+        children = parent.type === 'TableRowLayer' || parent.type === 'TableRowTemplate' ? parent.cells : null
+    }
     if (!children || !Number.isSafeInteger(index) || index < 0 || index >= children.length) return null
 
     let originX = parentBox.x

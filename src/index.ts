@@ -18,6 +18,11 @@ export {
 } from './decode'
 export { encodeGraph, encodeLayer } from './encode'
 export {
+    docPathToViewPath,
+    viewPathToDocPath,
+    withTemplatePreview,
+} from './preview'
+export {
     anchorOffset,
     contentHeight,
     contentWidth,
