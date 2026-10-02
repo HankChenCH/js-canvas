@@ -70,7 +70,7 @@ export function resolveLayerBox(
     parentHeight: number,
     policies?: TextLayoutPolicies,
 ): LayerBox {
-    const width = layerWidth(layer)
+    const width = layerWidth(layer, policies)
     const height = layerHeight(layer, policies)
     const offset = anchorOffset(layer.position.anchor, parentWidth, parentHeight, width, height)
     const x = originX + offset.x + layer.position.x
@@ -83,7 +83,7 @@ export function resolveLayerBox(
         height,
         contentX: x + layer.shape.padding.left,
         contentY: y + layer.shape.padding.top,
-        contentWidth: contentWidth(layer),
+        contentWidth: contentWidth(layer, policies),
         contentHeight: contentHeight(layer, policies),
     }
 }
@@ -133,7 +133,7 @@ function paintContent(
         case 'ImageLayer':
             // 原始引用为 null 只画盒（未物化/未加载的占位语义）
             if (layer.src !== null) {
-                const origin = imageOrigin(layer)
+                const origin = imageOrigin(layer, policies)
                 backend.drawImage(
                     layer.src,
                     box.x + origin.x,
@@ -238,7 +238,7 @@ export function resolveChildAt(
     for (let i = 0; i < index; i += 1) {
         const prev = children[i]!
         if (key === 'rows') originY += layerHeight(prev, policies)
-        else originX += layerWidth(prev)
+        else originX += layerWidth(prev, policies)
     }
     const layer = children[index]!
     return { layer, box: resolveLayerBox(layer, originX, originY, parentBox.width, parentBox.height, policies) }
@@ -271,7 +271,7 @@ function walkLayer(
             let posx = box.x
             for (const cell of layer.cells) {
                 walkLayer(cell, posx, box.y, box.width, box.height, visit, policies)
-                posx += layerWidth(cell)
+                posx += layerWidth(cell, policies)
             }
             break
         }

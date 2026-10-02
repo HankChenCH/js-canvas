@@ -4,6 +4,7 @@ import {
     contentWidth,
     createHeuristicMeasurer,
     layerHeight,
+    layerWidth,
     textLines,
     textOrigin,
     imageOrigin,
@@ -11,6 +12,7 @@ import {
     type TextMeasurer,
     type TextMeasurerFactory,
     type TextLayer,
+    type Shape,
 } from '../../src/index'
 
 /** 领域 TextLayer 构造助手（对齐 geometry.test.ts 同款缺省：left/bottom、autoHeight） */
@@ -183,6 +185,120 @@ describe('度量器工厂与断行器注入缝', () => {
 
         expect(seenWidths).toEqual([50])
         expect(seenFactories).toEqual([{ font: '/fonts/demo.ttf', fontSize: 14 }])
+    })
+})
+
+/**
+ * 宽自适应自然宽（layerWidth，ADR 0014）：值平移 phpunit TextLayerTest 的
+ * testAutoWidth* 用例（语义权威 = PHP getWidth 覆写，同输入同输出逐值一致）。
+ * 打开 autoWidth 的文本层宽 = 未断行自然宽：显式换行拆段取最大度量宽（ceil）+
+ * 横向 padding（trunc 求和）；空文本 = 0 + 横向 padding；求值忽略 autowrap。
+ */
+describe('宽自适应自然宽（layerWidth）', () => {
+    /** width 'auto' 的领域形态：flag 置真 + 声明宽清零（decode 'auto' 同门）；
+     *  shape 深合并缺省，用例只覆写关注字段（padding 等） */
+    function autoWidthLayer(overrides: Partial<Omit<TextLayer, 'shape'>> & { shape?: Partial<Shape> }): TextLayer {
+        const { shape, ...rest } = overrides
+        const base = textLayer({})
+        return textLayer({
+            ...rest,
+            shape: { ...base.shape, width: 0, autoWidth: true, autoHeight: false, ...shape },
+        })
+    }
+
+    it('单行自然宽：启发式度量半角 0.55 字宽 × 字号 → abcd @10 = 22（平移 testAutoWidthSingleLineNaturalWidth）', () => {
+        const layer = autoWidthLayer({ text: 'abcd', fontSize: 10 })
+        expect(layerWidth(layer)).toBe(22)
+    })
+
+    it('显式换行拆段取最大段宽：ab=11、一二三=30 → 30（平移 testAutoWidthTakesMaxSegmentAcrossExplicitNewlines）', () => {
+        const layer = autoWidthLayer({ text: 'ab\n一二三', fontSize: 10 })
+        expect(layerWidth(layer)).toBe(30)
+    })
+
+    it('空文本只剩横向 padding（镜像 autoHeight 空文本只剩纵向 padding；平移 testAutoWidthEmptyTextKeepsHorizontalPaddingOnly）', () => {
+        const layer = autoWidthLayer({
+            shape: { padding: { top: 0, bottom: 0, left: 10, right: 10 } },
+        })
+        expect(layerWidth(layer)).toBe(20)
+    })
+
+    it('浮点段宽 ceil：abc @10 = 16.5 → 17（平移 testAutoWidthCeilsFractionalMeasure）', () => {
+        const layer = autoWidthLayer({ text: 'abc', fontSize: 10 })
+        expect(layerWidth(layer)).toBe(17)
+    })
+
+    it('autoWidth 优先：内容盒宽即自然宽 → 断行不再切分，组合退化为不折行；autowrap 标志留在结构不动（平移 testAutoWidthWithAutowrapDegradesToNoWrap）', () => {
+        const layer = autoWidthLayer({ text: '一二三四五六七', fontSize: 10, autowrap: true })
+
+        expect(layerWidth(layer)).toBe(70)
+        expect(textLines(layer)).toEqual(['一二三四五六七'])
+        expect(layer.autowrap).toBe(true)
+        expect(layer.shape.autoWidth).toBe(true)
+    })
+
+    it('三组合（autoWidth + autowrap + 显式换行）：宽度取最大段宽，断行只落显式换行处、段内不再折行（平移 testAutoWidthWithAutowrapKeepsExplicitNewlines）', () => {
+        const layer = autoWidthLayer({ text: '一二三四五六七\n一二三四五六七八', fontSize: 10, autowrap: true })
+
+        expect(layerWidth(layer)).toBe(80)
+        expect(textLines(layer)).toEqual(['一二三四五六七', '一二三四五六七八'])
+    })
+
+    it('横向 padding trunc 求和：2.7 + 2.7 = 5.4 → 5；一二 @10 = 20 → 25（平移 testAutoWidthPaddingTruncatesSumTowardZero）', () => {
+        const layer = autoWidthLayer({
+            text: '一二',
+            fontSize: 10,
+            shape: { padding: { top: 0, bottom: 0, left: 2.7, right: 2.7 } },
+        })
+        expect(layerWidth(layer)).toBe(25)
+    })
+
+    it('负 padding 向零截断（normZero 惯例）：-5 + -5 = -10；一二 @10 = 20 → 10（平移 testAutoWidthNegativePaddingTruncatesTowardZero）', () => {
+        const layer = autoWidthLayer({
+            text: '一二',
+            fontSize: 10,
+            shape: { padding: { top: 0, bottom: 0, left: -5, right: -5 } },
+        })
+        expect(layerWidth(layer)).toBe(10)
+    })
+
+    it('宽度求值经度量缝：注入增强度量器即得增强自然宽（平移 testAutoWidthGoesThroughMeasurerSeam）', () => {
+        const wideFactory: TextMeasurerFactory = (_font, _fontSize): TextMeasurer => ({
+            measure: (text) => [...text].length * 100,
+        })
+        const layer = autoWidthLayer({ text: 'ab' })
+
+        expect(layerWidth(layer, { measurerFactory: wideFactory })).toBe(200)
+    })
+
+    it('关闭 autoWidth 走声明宽（求值仅 flag 真时生效）', () => {
+        const layer = autoWidthLayer({ text: 'abcd', fontSize: 10 })
+        const fixed = { ...layer, shape: { ...layer.shape, width: 88, autoWidth: false } }
+        expect(layerWidth(fixed)).toBe(88)
+    })
+
+    it('仅 TextLayer 有义：QrCode flag 维持无义、按宽兜底正方形取的仍是声明宽（平移 QrCodeLayerTest::testAutoWidthStaysNoop）', () => {
+        const qr = {
+            type: 'QrCodeLayer' as const,
+            name: '',
+            visible: true,
+            priority: 0,
+            shape: { width: 0, height: 0, autoWidth: true, autoHeight: true, lineHeight: 1, padding: { top: 0, bottom: 0, left: 0, right: 0 }, border: { top: null, bottom: null, left: null, right: null }, backgroundColor: null },
+            align: { horizontal: 'left' as const, vertical: 'top' as const },
+            position: { x: 0, y: 0, anchor: 'top-left' as const },
+            value: 'https://example.com',
+            expression: null,
+        }
+        expect(layerWidth(qr)).toBe(0)
+        expect(layerHeight(qr)).toBe(0)
+    })
+
+    it('仅 TextLayer 有义：Image flag 维持无义（自然尺寸需物化资源才可知，ADR 0005；平移 ImageLayerTest::testAutoWidthStaysNoop）', () => {
+        const image = {
+            ...imageLayer({ width: 0, height: 40 }),
+            shape: { ...imageLayer({ width: 0, height: 40 }).shape, autoWidth: true },
+        }
+        expect(layerWidth(image)).toBe(0)
     })
 })
 

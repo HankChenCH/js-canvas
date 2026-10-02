@@ -42,9 +42,35 @@ function trunc(value: number): number {
     return normZero(Math.trunc(value))
 }
 
-/** 图层宽（PHP getWidth：无覆写；autoWidth 布局求值暂无内容宽注入点，与两端一致） */
-export function layerWidth(layer: Layer): number {
-    return layer.shape.width
+/**
+ * 图层宽（PHP getWidth 语义）：
+ * - 通用：声明宽
+ * - Text：autoWidth 时 = 未断行自然宽（ADR 0014）——按显式换行拆段取最大度量宽
+ *   （ceil）+ 横向 padding（trunc 求和，镜像 autoHeight 纵向 padding）；空文本 =
+ *   0 + 横向 padding（空串拆段得 ['']，度量宽 0 自然落到该分支）。求值忽略
+ *   autowrap——内容盒宽即自然宽，断行不再切分（除显式换行），组合退化为不折行，
+ *   autowrap 标志留在结构不动；拆段只按 \n 硬拆、不经 LineBreaker 缝（断行策略属
+ *   autowrap 渲染路径）。度量经 TextLayoutPolicies 缝（缺省启发式，可注入增强），
+ *   字体用原始引用（布局不依赖物化）
+ */
+export function layerWidth(layer: Layer, policies?: TextLayoutPolicies): number {
+    switch (layer.type) {
+        case 'TextLayer': {
+            if (!layer.shape.autoWidth) return layer.shape.width
+
+            const { measurerFactory } = resolvePolicies(policies)
+            const measurer = measurerFactory(layer.font, layer.fontSize)
+
+            let natural = 0
+            for (const segment of layer.text.split('\n')) {
+                natural = Math.max(natural, measurer.measure(segment))
+            }
+
+            return trunc(Math.ceil(natural)) + trunc(layer.shape.padding.left + layer.shape.padding.right)
+        }
+        default:
+            return layer.shape.width
+    }
 }
 
 /** 单行高（PHP lineHeightPx）：字号 × 行高倍数，向上取整 */
@@ -60,7 +86,7 @@ export function textLines(layer: TextLayer, policies?: TextLayoutPolicies): stri
     if (!layer.autowrap) return [layer.text]
 
     const { lineBreaker, measurerFactory } = resolvePolicies(policies)
-    return lineBreaker(layer.text, contentWidth(layer), measurerFactory(layer.font, layer.fontSize))
+    return lineBreaker(layer.text, contentWidth(layer, policies), measurerFactory(layer.font, layer.fontSize))
 }
 
 /**
@@ -83,15 +109,15 @@ export function layerHeight(layer: Layer, policies?: TextLayoutPolicies): number
         }
         case 'QrCodeLayer':
             if (!layer.shape.autoHeight && layer.shape.height > 0) return layer.shape.height
-            return layerWidth(layer)
+            return layerWidth(layer, policies)
         default:
             return layer.shape.height
     }
 }
 
-/** 内容区宽 = 宽 - 左右 padding（PHP getContentWidth，向零截断） */
-export function contentWidth(layer: Layer): number {
-    return trunc(layerWidth(layer) - layer.shape.padding.left - layer.shape.padding.right)
+/** 内容区宽 = 宽 - 左右 padding（PHP getContentWidth，向零截断；宽经 layerWidth 动态求值） */
+export function contentWidth(layer: Layer, policies?: TextLayoutPolicies): number {
+    return trunc(layerWidth(layer, policies) - layer.shape.padding.left - layer.shape.padding.right)
 }
 
 /** 内容区高 = 动态高 - 上下 padding（PHP 动态分派：经 getHeight 派生） */
@@ -111,9 +137,9 @@ export function textOrigin(layer: TextLayer, policies?: TextLayoutPolicies): { x
 
     // 取值 left/center/right，其余归 0（PHP match default 臂）
     const x = layer.align.horizontal === 'center'
-        ? trunc(contentWidth(layer) / 2)
+        ? trunc(contentWidth(layer, policies) / 2)
         : layer.align.horizontal === 'right'
-            ? contentWidth(layer)
+            ? contentWidth(layer, policies)
             : 0
 
     // 取值 top/center/bottom，其余归 0（PHP match default 臂）
@@ -133,23 +159,24 @@ export function textOrigin(layer: TextLayer, policies?: TextLayoutPolicies): { x
 /**
  * 内容区内图片的绘制起点（PHP ImageLayer::getImageOrigin：对齐 + padding），纯布局计算。
  * center = (盒尺寸 - 内容盒尺寸)/2 向零截断；left/top = padding 原点；
- * right/bottom = 盒尺寸 - 内容盒尺寸
+ * right/bottom = 盒尺寸 - 内容盒尺寸。policies 随布局函数族贯通（Image 宽高无求值，
+ * 当前恒声明值——与 PHP 动态分派在 Image 上无覆写同门）
  */
-export function imageOrigin(layer: ImageLayer): { x: number; y: number } {
-    const width = layerWidth(layer)
-    const height = layerHeight(layer)
+export function imageOrigin(layer: ImageLayer, policies?: TextLayoutPolicies): { x: number; y: number } {
+    const width = layerWidth(layer, policies)
+    const height = layerHeight(layer, policies)
 
     // 取值 left/center/right，其余归 0（PHP match default 臂）
     const x = layer.align.horizontal === 'center'
-        ? trunc((width - contentWidth(layer)) / 2)
+        ? trunc((width - contentWidth(layer, policies)) / 2)
         : layer.align.horizontal === 'right'
-            ? width - contentWidth(layer)
+            ? width - contentWidth(layer, policies)
             : trunc(layer.shape.padding.left)
 
     const y = layer.align.vertical === 'center'
-        ? trunc((height - contentHeight(layer)) / 2)
+        ? trunc((height - contentHeight(layer, policies)) / 2)
         : layer.align.vertical === 'bottom'
-            ? height - contentHeight(layer)
+            ? height - contentHeight(layer, policies)
             : trunc(layer.shape.padding.top)
 
     return { x, y }
