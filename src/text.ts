@@ -72,6 +72,56 @@ export function createHeuristicMeasurer(fontSize: number): TextMeasurer {
 export const heuristicMeasurerFactory: TextMeasurerFactory = (_font, fontSize) =>
     createHeuristicMeasurer(fontSize)
 
+/**
+ * 度量源最小结构面：CanvasRenderingContext2D 的结构等价（canvas-next 零 DOM 红线
+ * ——不引 DOM lib，宿主传真实 2D 上下文即结构契合；测试以结构替身注桩）。建议宿主
+ * 用专用离屏上下文，与渲染面互不干扰（字体经 FontFace 注册后 document 全局可解析，
+ * 离屏度量与渲染面同效）
+ */
+export interface MeasureTextSource {
+    /** ctx.font 简写（CSS font 属性），度量前按图层字体与字号设置 */
+    font: string
+    measureText(text: string): { width: number }
+}
+
+export interface MeasureTextMeasurerOptions {
+    /**
+     * 图层字体引用 → CSS font 族简写（内置引用 → sans-serif、URL → 注册族名）。
+     * 缺省恒等映射 + 空引用 sans-serif 兜底——URL 引用的正确映射（注册族名派生）
+     * 属渲染端知识，由宿主注入（browser-renderer 的 canvasFontCssFamily 同源）
+     */
+    readonly fontCssFamily?: (font: string) => string
+}
+
+/**
+ * 浏览器 measureText 度量器工厂（与启发式工厂并列的增强注入面）：canvas 2D context
+ * 按图层字体引用与字号构造度量器——每次度量前设置 ctx.font 简写（drawText 每次绘制
+ * 同样先设 font，同 this 用前设置的纪律；简写字面与绘制端 fontShorthand 不强求一致
+ * ——注册族名 fnv-1a base36 CSS 安全，度量端免引号并附 sans-serif 回落，注册命中与
+ * 未注册回落两态与绘制端行为一致），宽度取 metrics.width 像素浮点（取整决策留在
+ * 求值点，layerWidth 定 ceil）。经 TextLayoutPolicies.measurerFactory 由宿主显式注入，
+ * 宽自适应求值与断行从此走真实字体度量；不注入恒启发式（增强模式不隐式切换）。
+ * 注意：ctx.font 非法赋值被浏览器静默忽略、度量会残留上一简写——URL/数字内置引用
+ * 必须由宿主经 fontCssFamily 注入正确映射，缺省恒等映射只对 CSS 安全引用成立
+ */
+export function createMeasureTextMeasurerFactory(
+    context: MeasureTextSource,
+    options?: MeasureTextMeasurerOptions,
+): TextMeasurerFactory {
+    const resolveFamily =
+        options?.fontCssFamily ?? ((font: string) => (font.trim() === '' ? 'sans-serif' : font))
+
+    return (font, fontSize) => {
+        const shorthand = `${fontSize}px ${resolveFamily(font)}`
+        return {
+            measure(text) {
+                context.font = shorthand
+                return context.measureText(text).width
+            },
+        }
+    }
+}
+
 function joinClusters(clusters: string[]): string {
     return clusters.join('')
 }
