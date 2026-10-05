@@ -11,8 +11,20 @@ import type {
 } from './types'
 import type { WireBorder, WireBorderSide, WireGraph, WireLayerNode, WirePadding } from './wire'
 
+/**
+ * 整形字段收整（向零截断 + -0 归零，decode.toInt 同折法）：wire 契约的这些字段是
+ * 整数（PHP graph() 经 int 型别天然收整、Go wire int 字段直接 unmarshal）；JS 领域
+ * 无 int 型别，编辑器手势（画拉/缩放/拖动按 zoom 折算、面板数字输入）会让几何字段
+ * 携带分数。解码边界已按 toInt 收整（「严出」），编码是同一 wire 边界的另一半——
+ * 分数几何不出边界。浮点字段（lineHeight、padding）不收。
+ */
+function toInt(value: number): number {
+    const truncated = Math.trunc(value)
+    return truncated === 0 ? 0 : truncated
+}
+
 function encodeBorderSide(side: Border['top']): WireBorderSide | null {
-    return side ? { width: side.width, color: side.color } : null
+    return side ? { width: toInt(side.width), color: side.color } : null
 }
 
 function encodeLayerNode(layer: Layer): WireLayerNode {
@@ -22,11 +34,11 @@ function encodeLayerNode(layer: Layer): WireLayerNode {
         // 键序钉在 type 之后、priority 之前（三端字节 parity）；缺省态不落键
         ...(layer.name !== '' ? { name: layer.name } : {}),
         ...(layer.visible === false ? { visible: false } : {}),
-        priority: layer.priority,
+        priority: toInt(layer.priority),
         spec: {
             shape: {
-                width: layer.shape.width,
-                height: layer.shape.height,
+                width: toInt(layer.shape.width),
+                height: toInt(layer.shape.height),
                 autoWidth: layer.shape.autoWidth,
                 autoHeight: layer.shape.autoHeight,
                 lineHeight: layer.shape.lineHeight,
@@ -50,8 +62,8 @@ function encodeLayerNode(layer: Layer): WireLayerNode {
             },
             // 领域锚点 anchor 映射回 wire 的 position 键
             position: {
-                x: layer.position.x,
-                y: layer.position.y,
+                x: toInt(layer.position.x),
+                y: toInt(layer.position.y),
                 position: layer.position.anchor,
             },
         },
@@ -74,9 +86,9 @@ function encodeLayerNode(layer: Layer): WireLayerNode {
                     ...base.spec,
                     fontFamily: {
                         font: layer.font,
-                        fontSize: layer.fontSize,
+                        fontSize: toInt(layer.fontSize),
                         fontColor: layer.fontColor,
-                        angle: layer.angle,
+                        angle: toInt(layer.angle),
                         autowrap: layer.autowrap,
                     },
                 },
@@ -121,7 +133,7 @@ export function encodeGraph(canvas: Canvas): WireGraph {
     const sorted = [...canvas.layers].sort((a, b) => b.priority - a.priority)
 
     return {
-        canvas: { width: canvas.width, height: canvas.height },
+        canvas: { width: toInt(canvas.width), height: toInt(canvas.height) },
         layers: sorted.map(encodeLayerNode),
     }
 }

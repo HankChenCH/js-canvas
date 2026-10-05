@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { decodeGraph, decodeLayer, encodeGraph, encodeLayer } from '../../src/index'
-import type { ImageLayer, QrCodeLayer, TableLayer, TextLayer, WireGraph, WireLayerNode } from '../../src/index'
+import type { Canvas, ImageLayer, QrCodeLayer, TableLayer, TextLayer, WireGraph, WireLayerNode } from '../../src/index'
 
 /** canonical wire 造数器：键级对齐 php-canvas-next graph() 输出（往返恒等的输入形态） */
 function baseNode(type: WireLayerNode['type'], overrides: Record<string, unknown> = {}): WireLayerNode {
@@ -369,5 +369,87 @@ describe('name/visible 条件键', () => {
         expect(rebuilt.rows[0]!.name).toBe('行一')
         expect(rebuilt.rows[0]!.visible).toBe(false)
         expect(encodeLayer(rebuilt)).toEqual(wire)
+    })
+})
+
+/** 编码整形收整（decode toInt 同面字段）：JS 领域无 int 型别，编辑器手势（画拉/
+ *  缩放/拖动按 zoom 折算、面板数字输入）会让几何字段携带分数——wire 契约的这些
+ *  字段是整数（PHP graph() 经 intval 型别、Go wire int 字段直接 unmarshal），
+ *  编码须与解码同法向零截断，分数几何不出 wire 边界。 */
+describe('编码整形收整（wire int 面兼容）', () => {
+    /** 解码一份 canonical 画布再把几何字段改成分数——模拟编辑手势产出（领域只读
+     *  是型别层面的，运行时字段可变，同编辑器 transact 写法） */
+    function fractionalDoc(): Canvas {
+        const doc = decodeGraph(wireFromBase()) as unknown as {
+            width: number
+            height: number
+            layers: Record<string, any>[]
+        }
+        doc.width = 794.6
+        doc.height = 1123.2
+        // 领域形态直改（同编辑器 transact 手势写法）：shape/position/fontSize/angle
+        const layer = doc.layers[0]! as Record<string, any>
+        const shape = layer.shape as Record<string, any>
+        layer.priority = 3.9
+        layer.position = { ...layer.position, x: 138.64, y: -12.7 }
+        shape.width = 138.641975
+        shape.height = 20.5
+        shape.lineHeight = 1.5
+        shape.border = {
+            top: { width: 1.9, color: '#000000' },
+            bottom: null,
+            left: null,
+            right: null,
+        }
+        layer.fontSize = 12.7
+        layer.angle = -0.5
+        return doc as unknown as Canvas
+    }
+
+    function wireFromBase(): WireGraph {
+        return {
+            canvas: { width: 794, height: 1123 },
+            layers: [
+                baseNode('TextLayer', {
+                    priority: 3,
+                    spec: {
+                        shape: {
+                            width: 138, height: 20, autoWidth: false, autoHeight: false, lineHeight: 1.5,
+                            padding: { top: 0, bottom: 0, left: 0, right: 0 },
+                            border: { top: { width: 1, color: '#000000' }, bottom: null, left: null, right: null },
+                            backgroundColor: null,
+                        },
+                        align: { horizontal: 'left', vertical: 'top' },
+                        position: { x: 138, y: -12, position: 'top-left' },
+                        fontFamily: { font: '', fontSize: 12, fontColor: '#000000', angle: 0, autowrap: false },
+                    },
+                    data: { valueType: 'StaticValue', expression: '', value: '标题' },
+                }),
+            ],
+        }
+    }
+
+    it('shape/position/priority/fontSize/angle/canvas/border 向零截断；lineHeight/padding 浮点不收', () => {
+        const wire = encodeGraph(fractionalDoc())
+        expect(wire.canvas).toEqual({ width: 794, height: 1123 })
+        const layer = (wire.layers ?? [])[0]! as NonNullable<WireGraph['layers']>[number]
+        expect(layer.priority).toBe(3)
+        expect(layer.spec!.shape!.width).toBe(138)
+        expect(layer.spec!.shape!.height).toBe(20)
+        expect(layer.spec!.shape!.lineHeight).toBe(1.5)
+        expect(layer.spec!.shape!.border!.top!.width).toBe(1)
+        expect(layer.spec!.position!.x).toBe(138)
+        expect(layer.spec!.position!.y).toBe(-12)
+        expect(layer.spec!.fontFamily!.fontSize).toBe(12)
+        // -0.5 → -0 归一 0（PHP 整数域无 -0，decode normZero 同门）
+        expect(Object.is(layer.spec!.fontFamily!.angle, -0)).toBe(false)
+        expect(layer.spec!.fontFamily!.angle).toBe(0)
+    })
+
+    it('收整后 wire 与原整数 wire 字节恒等（decode∘encode 往返不因手势分数漂移）', () => {
+        const wire = encodeGraph(fractionalDoc())
+        expect(JSON.stringify(wire)).toBe(JSON.stringify(wireFromBase()))
+        // 收整 wire 再 decode 出的文档与整数基线文档同构
+        expect(decodeGraph(wire)).toEqual(decodeGraph(wireFromBase()))
     })
 })
