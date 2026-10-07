@@ -9,7 +9,7 @@ import {
     type LineBreaker,
     type TextMeasurerFactory,
 } from './text'
-import type { Anchor, ImageLayer, Layer, TextLayer } from './types'
+import type { Anchor, ImageLayer, Layer, QrCodeLayer, TextLayer } from './types'
 
 /**
  * 文本布局策略（注入缝）：断行器 + 度量器工厂。缺省 = UAX14 简化断行器 +
@@ -177,6 +177,41 @@ export function imageOrigin(layer: ImageLayer, policies?: TextLayoutPolicies): {
         ? trunc((height - contentHeight(layer, policies)) / 2)
         : layer.align.vertical === 'bottom'
             ? height - contentHeight(layer, policies)
+            : trunc(layer.shape.padding.top)
+
+    return { x, y }
+}
+
+/**
+ * 二维码内容边长 = min(内容区宽, 内容区高)：内切于内容盒的正方形（PHP getContentSide，
+ * quiet zone 语义——padding 留白即码外静区）。内容区负值直通（trunc 不钳零，
+ * ≤0 由渲染后端 drawImage 防护只画盒）
+ */
+export function qrContentSide(layer: QrCodeLayer, policies?: TextLayoutPolicies): number {
+    return Math.min(contentWidth(layer, policies), contentHeight(layer, policies))
+}
+
+/**
+ * 内容盒内二维码的绘制起点（PHP QrCodeLayer::getQrOrigin：对齐 + padding，
+ * 镜像 imageOrigin——内容尺寸换成内切边长），纯布局计算。
+ * left/top = padding 原点；center = (盒尺寸 - 边长)/2 向零截断；right/bottom = 盒尺寸 - 边长
+ */
+export function qrOrigin(layer: QrCodeLayer, policies?: TextLayoutPolicies): { x: number; y: number } {
+    const width = layerWidth(layer, policies)
+    const height = layerHeight(layer, policies)
+    const side = qrContentSide(layer, policies)
+
+    // 取值 left/center/right，其余归 0（PHP match default 臂）
+    const x = layer.align.horizontal === 'center'
+        ? trunc((width - side) / 2)
+        : layer.align.horizontal === 'right'
+            ? width - side
+            : trunc(layer.shape.padding.left)
+
+    const y = layer.align.vertical === 'center'
+        ? trunc((height - side) / 2)
+        : layer.align.vertical === 'bottom'
+            ? height - side
             : trunc(layer.shape.padding.top)
 
     return { x, y }

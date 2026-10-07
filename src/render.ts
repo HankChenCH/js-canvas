@@ -12,6 +12,8 @@ import {
     layerHeight,
     layerWidth,
     lineHeightPx,
+    qrContentSide,
+    qrOrigin,
     textLines,
     textOrigin,
     type TextLayoutPolicies,
@@ -161,11 +163,14 @@ function paintContent(
             break
         }
         case 'QrCodeLayer':
-            // 镜像 PHP paintQrCode：二维码图像按宽度正方形铺放于图层原点（padding/align
-            // 不参与，声明高 ≠ 宽时图像仍宽×宽）；空值无内容（PHP resolvedSrc null 同门）。
-            // 未物化时后端查不到键只画盒——占位语义（工单 04 物化器回写 qrImageSrc 键）
+            // 二维码内切于内容盒：边长 = min(内容区宽高)（quiet zone 语义——padding 留白
+            // 即码外静区，露图层盒背景），对齐 + padding 定位（镜像 PHP paintQrCode /
+            // paintImage 同族）；边长 ≤0 由后端 drawImage 防护只画盒。空值无内容（PHP
+            // resolvedSrc null 同门）；未物化时后端查不到键只画盒——占位语义
             if (layer.value !== '') {
-                backend.drawImage(qrImageSrc(layer.value), box.x, box.y, box.width, box.width)
+                const origin = qrOrigin(layer, policies)
+                const side = qrContentSide(layer, policies)
+                backend.drawImage(qrImageSrc(layer.value), box.x + origin.x, box.y + origin.y, side, side)
             }
             break
         default:

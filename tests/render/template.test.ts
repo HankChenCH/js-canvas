@@ -205,7 +205,7 @@ describe('五原语渲染模板', () => {
         ])
     })
 
-    it('工单 04 QR 绘制：内容盒无关、忽略 padding/align，声明高 ≠ 宽时仍按宽铺正方形', () => {
+    it('工单 04 QR 绘制：内切正方形（side = min 内容区宽高），center/center 整盒内居中', () => {
         const canvas = decodeGraph({
             canvas: { width: 200, height: 200 },
             layers: [{
@@ -213,7 +213,7 @@ describe('五原语渲染模板', () => {
                 spec: {
                     shape: {
                         width: 80,
-                        height: 40, // 声明高 ≠ 宽：PHP getHeight 声明优先生效，但图像仍宽×宽
+                        height: 40, // 声明高 ≠ 宽：side = min(66, 30) = 30，码内切不再按宽溢出
                         padding: { top: 5, bottom: 5, left: 7, right: 7 },
                     },
                     align: { horizontal: 'center', vertical: 'center' },
@@ -226,10 +226,31 @@ describe('五原语渲染模板', () => {
         renderCanvas(canvas, backend)
 
         expect(calls.filter((call) => call.op === 'image')).toEqual([
-            { op: 'image', src: 'qr:https://example.com/join', x: 10, y: 20, width: 80, height: 80 },
+            // center：(80-30)/2=25 → x=10+25=35，(40-30)/2=5 → y=20+5=25
+            { op: 'image', src: 'qr:https://example.com/join', x: 35, y: 25, width: 30, height: 30 },
         ])
-        // 盒高按声明（40），QR 内容铺宽 × 宽（80）
+        // 盒仍按声明（80×40）；padding 留白露盒背景
         expect(rects(calls)[0]).toMatchObject({ width: 80, height: 40 })
+    })
+
+    it('工单 04 QR：left/top 缺省锚定 padding 原点（quiet zone = padding）', () => {
+        const canvas = decodeGraph({
+            canvas: { width: 200, height: 200 },
+            layers: [{
+                type: 'QrCodeLayer',
+                spec: {
+                    shape: { width: 100, height: 100, padding: { top: 20, bottom: 20, left: 20, right: 20 } },
+                },
+                data: { value: 'https://example.com/anchor' },
+            }],
+        })
+        const { calls, backend } = recordingBackend()
+        renderCanvas(canvas, backend)
+
+        // side = min(60, 60) = 60；left/top → padding 原点 (20, 20)
+        expect(calls.filter((call) => call.op === 'image')).toEqual([
+            { op: 'image', src: 'qr:https://example.com/anchor', x: 20, y: 20, width: 60, height: 60 },
+        ])
     })
 
     it('工单 04 QR：空值不绘制；表格单元格内的 QR 同样分派', () => {
@@ -257,8 +278,8 @@ describe('五原语渲染模板', () => {
 
         expect(calls.filter((call) => call.op === 'image')).toEqual([
             // 单元格内容层与单元格同原点（10, 20）；addContentLayer 副作用把内容宽
-            // 同步为 cell 宽 50，QR 按同步后的宽铺 50×50 正方形
-            { op: 'image', src: 'qr:cell', x: 10, y: 20, width: 50, height: 50 },
+            // 同步为 cell 宽 50、高压平为 cell 高 40，side = min(50, 40) = 40
+            { op: 'image', src: 'qr:cell', x: 10, y: 20, width: 40, height: 40 },
         ])
     })
 
