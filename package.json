@@ -1,0 +1,18 @@
+{
+    "name": "js-canvas",
+    "version": "0.1.0",
+    "private": true,
+    "description": "graph 契约的 JS 端核心（无 DOM 世界）：核心契约包，未来 Node 渲染器以 workspace 成员加入",
+    "packageManager": "pnpm@10.34.5",
+    "engines": {
+        "node": ">=22.12"
+    },
+    "scripts": {
+        "test": "pnpm -r test",
+        "typecheck": "pnpm -r typecheck",
+        "build": "pnpm -r build"
+    },
+    "devDependencies": {
+        "typescript": "~5.9.3"
+    }
+}

@@ -1,0 +1,22 @@
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "lib": ["ES2022"],
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "moduleDetection": "force",
+        // 红线：结构包不加 DOM lib——document/window 等宿主类型直接编译报错
+        // （本仓是无 DOM 世界：浏览器/DOM 系包住在 canvas-web，未来 Node 渲染器同样无 DOM）
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "noFallthroughCasesInSwitch": true,
+        "verbatimModuleSyntax": true,
+        "isolatedModules": true,
+        // 类型检查 only；发布产物由 tsup 产出（pnpm -r build），产物经 exports 指向 dist
+        "noEmit": true,
+        "skipLibCheck": true,
+        "types": []
+    }
+}

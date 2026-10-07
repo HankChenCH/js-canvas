@@ -4,7 +4,7 @@ import { PACKAGE_NAME } from '../src/index'
 
 describe('包出口冒烟', () => {
     it('入口可导入（无 DOM、无运行时依赖的环境下）', () => {
-        expect(PACKAGE_NAME).toBe('@hankchen/canvas-next')
+        expect(PACKAGE_NAME).toBe('@hankchen/canvas')
     })
 
     it('运行环境确为 Node 无 DOM（内核测试必须在无 DOM 环境跑）', () => {

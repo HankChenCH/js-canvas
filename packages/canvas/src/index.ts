@@ -1,11 +1,11 @@
 /**
- * @hankchen/canvas-next 文档模型公共出口。
+ * @hankchen/canvas 文档模型公共出口。
  *
  * graph wire 类型与解码校验、画布/图层纯结构（7 种 type 可辨识联合）、
  * 布局纯函数、五原语渲染契约。红线：零 DOM、零运行时依赖
  * （tsconfig 无 DOM lib + dependency-cruiser 双闸锁死）。
  */
-export const PACKAGE_NAME = '@hankchen/canvas-next' as const
+export const PACKAGE_NAME = '@hankchen/canvas' as const
 
 export * from './types'
 export * from './wire'

@@ -1,0 +1,33 @@
+name: CI
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+
+jobs:
+    ci:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            # pnpm 版本读根 package.json 的 packageManager 字段（pnpm@10 固定）
+            - uses: pnpm/action-setup@v4
+
+            # Node 版本读 .nvmrc（22 = Node 22 LTS）
+            - uses: actions/setup-node@v4
+              with:
+                  node-version-file: .nvmrc
+                  cache: pnpm
+
+            - name: 安装依赖
+              run: pnpm install --frozen-lockfile
+
+            - name: 各包类型检查
+              run: pnpm -r typecheck
+
+            - name: 各包测试
+              run: pnpm -r test
+
+            - name: 各包构建（发布产物管线）
+              run: pnpm -r build
