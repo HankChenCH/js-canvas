@@ -1,6 +1,6 @@
 {
     "name": "@hankchen/canvas",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "license": "MIT",
     "description": "文档模型：graph 类型与解码校验、画布/图层纯结构、布局纯函数、五原语渲染契约——零 DOM、零运行时依赖",
     "type": "module",
