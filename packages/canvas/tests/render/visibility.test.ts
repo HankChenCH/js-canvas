@@ -45,7 +45,7 @@ const hidden = () => textLayer({ visible: false, spec: { shape: { width: 40, hei
 
 describe('visible=false 根图层渲染跳过', () => {
     it('renderCanvas 不绘制隐藏根层（隐藏层在渲染序末位，跳过后零原语）', () => {
-        const canvas: Canvas = { width: 100, height: 100, layers: [visible(), hidden()] }
+        const canvas: Canvas = { width: 100, height: 100, background: null, layers: [visible(), hidden()] }
         const { records, backend } = recordingBackend()
 
         renderCanvas(canvas, backend)
@@ -58,7 +58,7 @@ describe('visible=false 根图层渲染跳过', () => {
     })
 
     it('forEachLayerBox 同门跳过（工具层几何遍历与绘制不漂移）', () => {
-        const canvas: Canvas = { width: 100, height: 100, layers: [visible(), hidden()] }
+        const canvas: Canvas = { width: 100, height: 100, background: null, layers: [visible(), hidden()] }
         const visited: Layer[] = []
 
         forEachLayerBox(canvas, (layer) => visited.push(layer))

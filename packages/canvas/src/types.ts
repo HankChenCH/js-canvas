@@ -174,9 +174,26 @@ export type Layer =
     | TableCellLayer
     | TableRowTemplateLayer
 
+/**
+ * 画布背景（ADR 0022 / canvas-background spec §3）：画布级声明式填充，纯值对象。
+ * 渲染语义字段、不属图层树：无显隐、无优先级、不进命中面；静态——不进 hydrate
+ * 改写面与表达式白名单，展开/预览仅透传。适配固定 cover，无 fit 字段
+ */
+export interface CanvasBackground {
+    /** 背景色（与图层 shape.backgroundColor 同格式域）；null = 未设 */
+    readonly color: string | null
+    /** 背景图资源引用（URL 或本地路径，与 ImageLayer src 同构）；null = 未设 */
+    readonly image: string | null
+}
+
 /** 画布：纯结构容器。layers 按 priority 降序（等优先级保持插入序），数组头先画垫底 */
 export interface Canvas {
     readonly width: number
     readonly height: number
+    /**
+     * 画布背景（ADR 0022）：null = 无背景（wire 整键不落，缺省态字节面与无字段
+     * 版本一致）；渲染语义见 CanvasBackground。解码恒产出（缺键回填 null）
+     */
+    readonly background: CanvasBackground | null
     readonly layers: readonly Layer[]
 }

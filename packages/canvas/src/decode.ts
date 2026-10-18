@@ -16,6 +16,7 @@ import {
     type Border,
     type BorderSide,
     type Canvas,
+    type CanvasBackground,
     type Layer,
     type LayerType,
     type Padding,
@@ -478,6 +479,22 @@ export function decodeLayer(node: unknown): Layer {
     return decoder(rec ?? {})
 }
 
+/**
+ * 画布背景宽容读（ADR 0022，镜像 php-canvas-next CanvasBackground::fromGraph）：
+ * 非对象/null 整块归无背景；分量走 is_string 门（非串不弱转、null 归缺省），空串
+ * 与缺省同归 null（PHP 构造器空串同归缺省同款）；两分量皆空归 null——与不落键态
+ * 合流，编码侧据此整键不落（往返恒等对落键/不落键两态都成立）
+ */
+function decodeBackground(value: unknown): CanvasBackground | null {
+    const rec = asRecord(value)
+    if (!rec) return null
+    const nonEmptyStringOrNull = (raw: unknown): string | null =>
+        typeof raw === 'string' && raw !== '' ? raw : null
+    const color = nonEmptyStringOrNull(rec.color)
+    const image = nonEmptyStringOrNull(rec.image)
+    return color === null && image === null ? null : { color, image }
+}
+
 /** graph → 画布：宽进（缺键/字符串数字），图层按 priority 降序（等优先级保持 wire 序） */
 export function decodeGraph(input: unknown): Canvas {
     const rec = asRecord(input) ?? {}
@@ -495,6 +512,7 @@ export function decodeGraph(input: unknown): Canvas {
     return {
         width: toInt(canvasRec.width ?? 0),
         height: toInt(canvasRec.height ?? 0),
+        background: decodeBackground(canvasRec.background),
         layers: sorted,
     }
 }

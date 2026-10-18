@@ -2,14 +2,16 @@
  * 领域 → wire 编码：canonical 输出，键级对齐 php-canvas-next 的 graph()。
  * graph → 解码 → 编码往返恒等（硬契约）的另一半；缺省字段全量落键——
  * 例外是 name/visible 条件键（layer-panel-ux 工单 01）：仅 name 非空、visible 为 false
- * 时写键，缺省图层的 wire 字节面与无字段版本完全一致。
+ * 时写键；与 background 条件键（ADR 0022）：两分量皆空整键不落、落键仅非空分量，
+ * 缺省形态的 wire 字节面与无字段版本完全一致。
  */
 import type {
     Border,
     Canvas,
+    CanvasBackground,
     Layer,
 } from './types'
-import type { WireBorder, WireBorderSide, WireGraph, WireLayerNode, WirePadding } from './wire'
+import type { WireBorder, WireBorderSide, WireCanvasBackground, WireGraph, WireLayerNode, WirePadding } from './wire'
 
 /**
  * 整形字段收整（向零截断 + -0 归零，decode.toInt 同折法）：wire 契约的这些字段是
@@ -128,12 +130,38 @@ function encodeLayerNode(layer: Layer): WireLayerNode {
     }
 }
 
+/**
+ * 画布背景条件写键（ADR 0022，镜像 PHP CanvasBackground::graph 的 ?array 门）：
+ * 仅非空分量落键（空串与 null 同归缺省，镜像 PHP 值对象构造器归一），键序钉死
+ * color, image；两分量皆空返回 null——「整键不落」判据单点收敛于此
+ */
+function encodeBackground(background: CanvasBackground | null): WireCanvasBackground | null {
+    if (!background) {
+        return null
+    }
+    const wire: WireCanvasBackground = {}
+    if (background.color) {
+        wire.color = background.color
+    }
+    if (background.image) {
+        wire.image = background.image
+    }
+    return wire.color || wire.image ? wire : null
+}
+
 /** 画布 → graph wire：图层按 priority 降序落键（等优先级保持原序，稳定排序） */
 export function encodeGraph(canvas: Canvas): WireGraph {
     const sorted = [...canvas.layers].sort((a, b) => b.priority - a.priority)
+    const background = encodeBackground(canvas.background)
 
     return {
-        canvas: { width: toInt(canvas.width), height: toInt(canvas.height) },
+        canvas: {
+            width: toInt(canvas.width),
+            height: toInt(canvas.height),
+            // 无背景整键不落：缺省态字节面与无字段版本一致（name/visible 先例）；
+            // 落键时键序钉在 height 之后
+            ...(background ? { background } : {}),
+        },
         layers: sorted.map(encodeLayerNode),
     }
 }

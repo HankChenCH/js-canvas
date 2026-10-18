@@ -4,9 +4,21 @@
  * 运行时解码（decode.ts）按 unknown 宽进并做缺省回填与数字收整，不信任这些静态类型。
  */
 
+export interface WireCanvasBackground {
+    /** 背景色；条件写键——null/''/缺键同归缺省，仅非空分量落键 */
+    color?: string
+    /** 背景图资源引用；条件写键同上 */
+    image?: string
+}
+
 export interface WireCanvas {
     width?: number
     height?: number
+    /**
+     * 画布背景（ADR 0022）：嵌套 background{color?, image?}，条件写键——两分量皆空
+     * 整键不落（缺省态字节面与无字段版本一致）；键序钉在 height 之后
+     */
+    background?: WireCanvasBackground
 }
 
 export interface WireBorderSide {

@@ -372,6 +372,79 @@ describe('name/visible 条件键', () => {
     })
 })
 
+/**
+ * 画布背景条件键（ADR 0022 / canvas-background spec §3，PHP CanvasTest::testBackground*
+ * 与 Go canvas 包同名断言同款口径）：嵌套 background{color?, image?} 条件写键——
+ * 两分量皆空整键不落（缺省态字节面与无字段版本一致）；落键仅非空分量落键，
+ * 键序钉死 canvas{width,height,background} / background{color,image}；
+ * 解码宽容读缺键回填空；落键/不落键两态 decode → encode 往返恒等
+ */
+describe('画布背景条件键', () => {
+    it('无背景编码不落 background 键（canvas 段与现状逐字节一致，name/visible 先例）', () => {
+        const plain = decodeGraph({ canvas: { width: 100, height: 80 }, layers: [] })
+        expect(plain.background).toBeNull()
+        expect(JSON.stringify(encodeGraph(plain))).toBe('{"canvas":{"width":100,"height":80},"layers":[]}')
+    })
+
+    it('落键仅非空分量落键且键序钉死（JSON 字节面锁定）', () => {
+        const both = encodeGraph(decodeGraph({
+            canvas: { width: 100, height: 80, background: { color: '#ffffff', image: 'https://cdn.example.com/bg.png' } },
+            layers: [],
+        }))
+        expect(JSON.stringify(both.canvas)).toBe(
+            '{"width":100,"height":80,"background":{"color":"#ffffff","image":"https://cdn.example.com/bg.png"}}',
+        )
+
+        const colorOnly = encodeGraph(decodeGraph({
+            canvas: { width: 100, height: 80, background: { color: '#ffffff' } },
+            layers: [],
+        }))
+        expect(JSON.stringify(colorOnly.canvas)).toBe('{"width":100,"height":80,"background":{"color":"#ffffff"}}')
+
+        const imageOnly = encodeGraph(decodeGraph({
+            canvas: { width: 100, height: 80, background: { image: 'bg.png' } },
+            layers: [],
+        }))
+        expect(JSON.stringify(imageOnly.canvas)).toBe('{"width":100,"height":80,"background":{"image":"bg.png"}}')
+    })
+
+    it('落键/不落键两态 decode → encode 往返恒等（平移 testBackgroundRoundtripIdentityOnBothStates）', () => {
+        // 落键态：恒等 + 分量读回一致
+        const withBackground = {
+            canvas: { width: 100, height: 80, background: { color: '#ffffff', image: 'https://cdn.example.com/bg.png' } },
+            layers: [baseNode('ImageLayer', { data: { valueType: 'StaticValue', value: 'a.png' } })],
+        }
+        const rebuilt = encodeGraph(decodeGraph(withBackground))
+        expect(rebuilt).toEqual(withBackground)
+        const doc = decodeGraph(withBackground)
+        expect(doc.background).toEqual({ color: '#ffffff', image: 'https://cdn.example.com/bg.png' })
+
+        // 不落键态：宽容读缺键回填空，往返同样恒等
+        const withoutBackground = { canvas: { width: 10, height: 10 }, layers: [] }
+        const plain = decodeGraph(withoutBackground)
+        expect(plain.background).toBeNull()
+        expect(encodeGraph(decodeGraph(encodeGraph(plain)))).toEqual(encodeGraph(plain))
+    })
+
+    it('宽容读：非对象/错型分量/空串分量归缺省，两空合流整键不落（镜像 PHP fromGraph）', () => {
+        // 非对象与 null：整块归无背景
+        expect(decodeGraph({ canvas: { width: 1, height: 1, background: null }, layers: [] }).background).toBeNull()
+        expect(decodeGraph({ canvas: { width: 1, height: 1, background: 'junk' }, layers: [] }).background).toBeNull()
+        expect(decodeGraph({ canvas: { width: 1, height: 1, background: [] }, layers: [] }).background).toBeNull()
+
+        // 错型分量走 is_string 门（PHP 权威端丢弃非串，不弱转）；空串与 null 同归缺省
+        expect(decodeGraph({ canvas: { width: 1, height: 1, background: { color: 123, image: 'bg.png' } } }).background)
+            .toEqual({ color: null, image: 'bg.png' })
+        expect(decodeGraph({ canvas: { width: 1, height: 1, background: { color: '', image: '' } }, layers: [] }).background)
+            .toBeNull()
+
+        // 空串落键态：解码归缺省后编码整键不落（往返收敛到 canonical 形态）
+        const mixed = decodeGraph({ canvas: { width: 1, height: 1, background: { color: '', image: 'bg.png' } }, layers: [] })
+        expect(mixed.background).toEqual({ color: null, image: 'bg.png' })
+        expect(encodeGraph(mixed).canvas).toEqual({ width: 1, height: 1, background: { image: 'bg.png' } })
+    })
+})
+
 /** 编码整形收整（decode toInt 同面字段）：JS 领域无 int 型别，编辑器手势（画拉/
  *  缩放/拖动按 zoom 折算、面板数字输入）会让几何字段携带分数——wire 契约的这些
  *  字段是整数（PHP graph() 经 intval 型别、Go wire int 字段直接 unmarshal），

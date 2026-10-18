@@ -20,6 +20,9 @@ import {
 } from './layout'
 import type { Border, Canvas, HorizontalAlign, Layer, VerticalAlign } from './types'
 
+/** 背景铺色用无边框形态（背景非图层盒，永无边框；decode NO_BORDER 同构） */
+const NO_BORDER: Border = { top: null, bottom: null, left: null, right: null }
+
 export interface TextDrawOptions {
     /** 字体路径/URL；空串/纯数字 = 渲染端内置默认字体 */
     font: string
@@ -116,12 +119,37 @@ export function renderCanvas(
     options?: RenderCanvasOptions,
 ): void {
     backend.begin(canvas.width, canvas.height)
+    paintBackground(canvas, backend)
     forEachLayerBox(canvas, (layer, box) => {
         backend.drawRect(box.x, box.y, box.width, box.height, layer.shape.backgroundColor, layer.shape.border)
         if (options?.skipContent?.(layer)) return
         paintContent(layer, box, backend, policies)
     }, policies)
     backend.end()
+}
+
+/**
+ * 画布背景铺装（ADR 0022 / canvas-background spec §4）：begin 之后、根层循环之前
+ * 的唯一插入点，先色后图——背景之下无物（画布初始透明保留），背景图透明区露背景
+ * 色。铺色复用 drawRect 原语（无边框），铺图复用 drawImage 原语（整幅画布矩形 =
+ * cover 语义；资源物化属宿主/后端缝，核心模板只递原始引用）；无背景零开销。
+ * 单图层便捷渲染入口不存在背景语义（无画布矩形），与 PHP renderLayer / Go
+ * RenderLayer 同门
+ */
+function paintBackground(canvas: Canvas, backend: RenderBackend): void {
+    const background = canvas.background
+    if (!background) {
+        return
+    }
+
+    if (background.color) {
+        // 先铺色：复用 drawRect 原语，背景无边框
+        backend.drawRect(0, 0, canvas.width, canvas.height, background.color, NO_BORDER)
+    }
+
+    if (background.image) {
+        backend.drawImage(background.image, 0, 0, canvas.width, canvas.height)
+    }
 }
 
 /** 盒绘制之后的内容分派（镜像 PHP paintImage/paintText；QR 内容绘制在工单 04 接入） */
