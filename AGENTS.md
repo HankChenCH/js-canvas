@@ -6,7 +6,7 @@ graph 契约的 JS 端核心仓 `js-canvas`：**无 DOM 世界**——当前唯�
 
 ## Layout
 
-- `packages/canvas/` — 唯一包。src 平铺 9 文件：`wire.ts`（宽松 wire 类型）/ `types.ts`（严格领域类型）/ `decode.ts` + `encode.ts`（宽进严出边界，graph → 解码 → 编码往返恒等是硬契约）/ `layout.ts` / `render.ts` / `text.ts` / `preview.ts` / `index.ts`（单 barrel + `PACKAGE_NAME`）。
+- `packages/canvas/` — 唯一包。src 平铺 9 文件：`wire.ts`（宽松 wire 类型）/ `types.ts`（严格领域类型）/ `decode.ts` + `encode.ts`（宽进严出边界，graph → 解码 → 编码往返恒等是硬契约）/ `layout.ts` / `render.ts`（五原语渲染契约 + 可选度量能力口，ADR 0023）/ `text.ts` / `preview.ts` / `index.ts`（单 barrel + `PACKAGE_NAME`）。
 - 构建产物：tsup（ESM + dts）→ `dist/`，exports 指向 dist；workspace 内 typecheck/test 直对 src（`tsc --noEmit` / vitest），不受构建影响。
 - `tests/fixtures/layout-snapshot.json` — PHP 导出的布局快照，再生成用 php-canvas-next 仓 `scripts/export-layout-snapshot.php`（PHP 8.3 + ext-intl），人审 diff 后提交。
 

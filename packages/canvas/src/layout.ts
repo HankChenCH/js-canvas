@@ -157,29 +157,64 @@ export function textOrigin(layer: TextLayer, policies?: TextLayoutPolicies): { x
 }
 
 /**
- * 内容区内图片的绘制起点（PHP ImageLayer::getImageOrigin：对齐 + padding），纯布局计算。
- * center = (盒尺寸 - 内容盒尺寸)/2 向零截断；left/top = padding 原点；
- * right/bottom = 盒尺寸 - 内容盒尺寸。policies 随布局函数族贯通（Image 宽高无求值，
- * 当前恒声明值——与 PHP 动态分派在 Image 上无覆写同门）
+ * 对齐放置公式（align + padding 同门，PHP ImageLayer alignedX/alignedY 同源防漂移）：
+ * placedWidth×placedHeight 的内容在整盒（boxWidth×boxHeight）内的起点。
+ * center = (整盒 - 内容)/2 向零截断；left/top = padding 原点；right/bottom = 整盒 - 内容
+ * （未知对齐取值走 left/top 分支，对齐解码已收口、此处锁纯函数自身）
  */
-export function imageOrigin(layer: ImageLayer, policies?: TextLayoutPolicies): { x: number; y: number } {
-    const width = layerWidth(layer, policies)
-    const height = layerHeight(layer, policies)
-
-    // 取值 left/center/right，其余归 0（PHP match default 臂）
+function alignedOrigin(
+    layer: ImageLayer,
+    boxWidth: number,
+    boxHeight: number,
+    placedWidth: number,
+    placedHeight: number,
+): { x: number; y: number } {
     const x = layer.align.horizontal === 'center'
-        ? trunc((width - contentWidth(layer, policies)) / 2)
+        ? trunc((boxWidth - placedWidth) / 2)
         : layer.align.horizontal === 'right'
-            ? width - contentWidth(layer, policies)
+            ? boxWidth - placedWidth
             : trunc(layer.shape.padding.left)
 
     const y = layer.align.vertical === 'center'
-        ? trunc((height - contentHeight(layer, policies)) / 2)
+        ? trunc((boxHeight - placedHeight) / 2)
         : layer.align.vertical === 'bottom'
-            ? height - contentHeight(layer, policies)
+            ? boxHeight - placedHeight
             : trunc(layer.shape.padding.top)
 
     return { x, y }
+}
+
+/**
+ * 内容区内图片的绘制起点（PHP ImageLayer::getImageOrigin：对齐 + padding），纯布局计算，
+ * 渲染端共用。policies 随布局函数族贯通（Image 宽高无求值，当前恒声明值——与 PHP
+ * 动态分派在 Image 上无覆写同门）
+ */
+export function imageOrigin(layer: ImageLayer, policies?: TextLayoutPolicies): { x: number; y: number } {
+    return alignedOrigin(layer, layerWidth(layer, policies), layerHeight(layer, policies), contentWidth(layer, policies), contentHeight(layer, policies))
+}
+
+/**
+ * contain 收缩矩形（ADR 0023，PHP ImageLayer::getContainRect 同门）：按源图内在比例
+ * 把内容盒收缩成等比矩形——两维同一缩放系数取 min（长边贴内容盒），放置复用
+ * alignedOrigin（与 imageOrigin 同门）。返回矩形相对图层盒原点；imgWidth/imgHeight
+ * 须为正（非法尺寸由调用方门控——读取失败按 cover 走，PHP getimagesize 失败同门），
+ * 收缩结果 ≤0 由渲染后端 drawImage 防护只画盒
+ */
+export function containRect(
+    layer: ImageLayer,
+    imgWidth: number,
+    imgHeight: number,
+    policies?: TextLayoutPolicies,
+): { x: number; y: number; width: number; height: number } {
+    const scale = Math.min(contentWidth(layer, policies) / imgWidth, contentHeight(layer, policies) / imgHeight)
+    const width = trunc(imgWidth * scale)
+    const height = trunc(imgHeight * scale)
+
+    return {
+        ...alignedOrigin(layer, layerWidth(layer, policies), layerHeight(layer, policies), width, height),
+        width,
+        height,
+    }
 }
 
 /**

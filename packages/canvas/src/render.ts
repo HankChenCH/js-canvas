@@ -1,13 +1,15 @@
 /**
  * 五原语渲染契约 + 渲染模板（镜像 php-canvas-next AbstractRenderer）：
  * 物化（工单 04 接入）→ begin → 按 priority 序遍历分派 → 容器下钻 → end。
- * 遍历/锚点合成/嵌套几何收在本模板；具体后端只实现五个绘制原语。
+ * 遍历/锚点合成/嵌套几何收在本模板；具体后端只实现五个绘制原语（ADR 0023 起另带
+ * 可选内在尺寸度量能力口 imageIntrinsicSize?——查询而非绘制原语，缺席按 cover 降级）。
  * 文本布局策略（断行/度量）经 policies 注入，缺省为启发式对齐版（见 layout.ts）。
  */
 import {
     anchorOffset,
     contentHeight,
     contentWidth,
+    containRect,
     imageOrigin,
     layerHeight,
     layerWidth,
@@ -18,7 +20,7 @@ import {
     textOrigin,
     type TextLayoutPolicies,
 } from './layout'
-import type { Border, Canvas, HorizontalAlign, Layer, VerticalAlign } from './types'
+import { IMAGE_FIT_CONTAIN, type Border, type Canvas, type HorizontalAlign, type Layer, type VerticalAlign } from './types'
 
 /** 背景铺色用无边框形态（背景非图层盒，永无边框；decode NO_BORDER 同构） */
 const NO_BORDER: Border = { top: null, bottom: null, left: null, right: null }
@@ -52,6 +54,14 @@ export interface RenderBackend {
     drawImage(src: string, x: number, y: number, width: number, height: number): void
     /** 单行文本，(x, y) 为对齐语义锚点（基线差由后端以字体 metrics 消化） */
     drawText(line: string, x: number, y: number, options: TextDrawOptions): void
+    /**
+     * 源图内在尺寸度量（ADR 0023 可选能力口）：contain 计划按源图内在比例收缩目标
+     * 矩形，尺寸由渲染端供给（浏览器 naturalWidth/naturalHeight、Node 端解码头部），
+     * 查询键与 drawImage 同一 src 引用。未实现本能力（可选成员，既有后端零破坏）、
+     * 返回 null 或非法尺寸（≤0）→ ImageLayer 臂按 cover 降级（PHP getimagesize 失败
+     * 同门）。五原语绘制契约冻结（ADR 0022 关切面）——本能力是查询口，非绘制原语
+     */
+    imageIntrinsicSize?(src: string): { width: number; height: number } | null
 }
 
 /** 图层盒的绝对几何；内容盒供 gizmo/命中测试/目验辅助共用 */
@@ -160,19 +170,32 @@ function paintContent(
     policies?: TextLayoutPolicies,
 ): void {
     switch (layer.type) {
-        case 'ImageLayer':
+        case 'ImageLayer': {
             // 原始引用为 null 只画盒（未物化/未加载的占位语义）
-            if (layer.src !== null) {
-                const origin = imageOrigin(layer, policies)
-                backend.drawImage(
-                    layer.src,
-                    box.x + origin.x,
-                    box.y + origin.y,
-                    box.contentWidth,
-                    box.contentHeight,
-                )
+            if (layer.src === null) break
+
+            // contain 计划（ADR 0023）：白名单在渲染臂——仅已知值 contain 询问后端度量
+            // 能力（未知 fit 值不经查询直接落 cover）；能力缺席/返回 null/非法尺寸按
+            // cover 降级（PHP getimagesize 失败同门）。收缩矩形复用 align + padding 放置，
+            // 空隙零绘制指令（透明露下层与背景）
+            const intrinsic = layer.fit === IMAGE_FIT_CONTAIN ? backend.imageIntrinsicSize?.(layer.src) : undefined
+            if (intrinsic && intrinsic.width > 0 && intrinsic.height > 0) {
+                const rect = containRect(layer, intrinsic.width, intrinsic.height, policies)
+                backend.drawImage(layer.src, box.x + rect.x, box.y + rect.y, rect.width, rect.height)
+                break
             }
+
+            // cover 路径（缺省/未知值降级/度量不可用共用）：逐字节现路径
+            const origin = imageOrigin(layer, policies)
+            backend.drawImage(
+                layer.src,
+                box.x + origin.x,
+                box.y + origin.y,
+                box.contentWidth,
+                box.contentHeight,
+            )
             break
+        }
         case 'TextLayer': {
             const origin = textOrigin(layer, policies)
             const posx = box.x + layer.shape.padding.left + origin.x

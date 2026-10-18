@@ -526,3 +526,97 @@ describe('编码整形收整（wire int 面兼容）', () => {
         expect(decodeGraph(wire)).toEqual(decodeGraph(wireFromBase()))
     })
 })
+
+/**
+ * fit 条件键（ADR 0023 / image-layer-fit spec §3，PHP ImageLayerTest testFit* 同款口径）：
+ * spec 顶层可选键、仅 ≠cover 落键（缺省态字节面与无字段版本一致）、落键殿后 spec 末位
+ * （shape/align/position/fit 三端键序 parity）；解码宽容读（无键/null/非串归缺省、
+ * 未知值原样透传保往返恒等）；渲染面未知值按 cover 降级（白名单在渲染臂，render 侧锁定）
+ */
+describe('fit 条件键（ADR 0023）', () => {
+    it('缺省图层编码不落 fit 键（spec 段字节面与无字段版本一致，平移 testFitOmittedByDefault）', () => {
+        const layer = decodeLayer(baseNode('ImageLayer')) as ImageLayer
+        expect(layer.fit).toBeUndefined()
+
+        const graph = encodeLayer(layer)
+        expect(graph.spec).not.toHaveProperty('fit')
+        expect(JSON.stringify(graph)).not.toContain('"fit"')
+    })
+
+    it('fit=contain 落键殿后 spec 末位（键序 shape/align/position/fit，平移 testFitContainWrittenLastInSpec）', () => {
+        const wire = baseNode('ImageLayer', {
+            spec: { ...baseNode('ImageLayer').spec, fit: 'contain' },
+            data: { valueType: 'StaticValue', value: 'a.png' },
+        })
+
+        const graph = encodeLayer(decodeLayer(wire))
+        expect(Object.keys(graph.spec!)).toEqual(['shape', 'align', 'position', 'fit'])
+        // JSON 字节面：fit 紧跟 position、spec 收口（殿后末位，三端键序 parity）
+        expect(JSON.stringify(graph)).toContain('"position":{"x":0,"y":0,"position":"top-left"},"fit":"contain"},"data"')
+    })
+
+    it('fit=contain 往返恒等（平移 testFitRoundtripIdentity）', () => {
+        const wire = baseNode('ImageLayer', {
+            spec: { ...baseNode('ImageLayer').spec, fit: 'contain' },
+            data: { valueType: 'StaticValue', value: 'a.png' },
+        })
+
+        const layer = decodeLayer(wire) as ImageLayer
+        expect(layer.fit).toBe('contain')
+        expect(encodeLayer(layer)).toEqual(wire)
+    })
+
+    it('显式 cover wire 解码归一缺省、编码不落键（平移 testExplicitCoverWireNormalizedToKeyless）', () => {
+        const wire = baseNode('ImageLayer', {
+            spec: { ...baseNode('ImageLayer').spec, fit: 'cover' },
+            data: { valueType: 'StaticValue', value: 'a.png' },
+        })
+
+        const layer = decodeLayer(wire) as ImageLayer
+        expect(layer.fit).toBeUndefined()
+
+        const graph = encodeLayer(layer)
+        expect(graph.spec).not.toHaveProperty('fit')
+        expect(JSON.stringify(graph)).not.toContain('"fit"')
+    })
+
+    it('未知 fit 值原样透传（往返恒等，平移 testUnknownFitValuePassesThrough）', () => {
+        const wire = baseNode('ImageLayer', {
+            spec: { ...baseNode('ImageLayer').spec, fit: 'fill' },
+            data: { valueType: 'StaticValue', value: 'a.png' },
+        })
+
+        const layer = decodeLayer(wire) as ImageLayer
+        expect(layer.fit).toBe('fill')
+
+        const rebuilt = encodeLayer(layer)
+        expect(rebuilt).toEqual(wire)
+        expect(rebuilt.spec).toHaveProperty('fit', 'fill')
+    })
+
+    it('宽容读：fit null / 非串值归缺省（PHP isset + is_string 门，非串不弱转）', () => {
+        for (const bad of [null, 42, true, ['contain'], { fit: 'contain' }]) {
+            const wire = baseNode('ImageLayer', {
+                spec: { ...baseNode('ImageLayer').spec, fit: bad },
+                data: { valueType: 'StaticValue', value: 'a.png' },
+            })
+
+            const layer = decodeLayer(wire) as ImageLayer
+            expect(layer.fit).toBeUndefined()
+            expect(encodeLayer(layer).spec).not.toHaveProperty('fit')
+        }
+    })
+
+    it('fit 与表达式标记正交：三键 data + spec.fit 往返恒等（fixture image-fit-wire 同形态）', () => {
+        const wire = baseNode('ImageLayer', {
+            spec: { ...baseNode('ImageLayer').spec, fit: 'contain' },
+            data: { valueType: 'ExpressionValue', expression: '{{row.photo}}', value: '{{row.photo}}' },
+        })
+
+        const layer = decodeLayer(wire) as ImageLayer
+        expect(layer.fit).toBe('contain')
+        expect(layer.expression).toBe('{{row.photo}}')
+        expect(layer.src).toBe('{{row.photo}}')
+        expect(encodeLayer(layer)).toEqual(wire)
+    })
+})

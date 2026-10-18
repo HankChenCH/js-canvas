@@ -11,12 +11,14 @@ import { layerHeight } from './layout'
 import {
     ANCHORS,
     HORIZONTAL_ALIGNS,
+    IMAGE_FIT_COVER,
     VERTICAL_ALIGNS,
     type Align,
     type Border,
     type BorderSide,
     type Canvas,
     type CanvasBackground,
+    type ImageLayer,
     type Layer,
     type LayerType,
     type Padding,
@@ -264,12 +266,26 @@ function decodeExpressionMark(data: Record<string, unknown> | null): string | nu
     return data.expression == null ? null : String(data.expression)
 }
 
+/**
+ * 适配模式宽容读（ADR 0023，镜像 PHP ImageLayer::fromGraph 的 isset + is_string 门）：
+ * 键在场且为字符串才收；'cover' 归一缺省 undefined（显式缺省形态合法、编码侧不落键，
+ * name=""/visible=true 先例）；未知枚举串原样透传（往返恒等），渲染面未知值按 cover
+ * 降级（白名单在渲染臂）。静态声明：随领域透传，不进表达式白名单
+ */
+function decodeImageFit(spec: Record<string, unknown>): ImageLayer['fit'] {
+    if (!Object.hasOwn(spec, 'fit') || typeof spec.fit !== 'string' || spec.fit === IMAGE_FIT_COVER) {
+        return undefined
+    }
+    return spec.fit
+}
+
 function decodeImageLayer(node: Record<string, unknown>): Layer {
+    const spec = asRecord(node.spec) ?? {}
     const data = asRecord(node.data)
     const expression = decodeExpressionMark(data)
     if (expression !== null) {
         // 标记态：src := expression 原样（'' 不做 →null 归一，PHP rawImg 同门）
-        return { type: 'ImageLayer', ...decodeBase(node, 'ImageLayer'), src: expression, expression }
+        return { type: 'ImageLayer', ...decodeBase(node, 'ImageLayer'), src: expression, expression, fit: decodeImageFit(spec) }
     }
 
     const raw = data?.value
@@ -279,6 +295,7 @@ function decodeImageLayer(node: Record<string, unknown>): Layer {
         // 空串与 null 归 null（PHP setImage 语义）；其余弱转字符串
         src: raw == null || raw === '' ? null : String(raw),
         expression: null,
+        fit: decodeImageFit(spec),
     }
 }
 

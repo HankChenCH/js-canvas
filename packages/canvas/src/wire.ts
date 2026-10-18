@@ -67,6 +67,12 @@ export interface WireSpec {
     position?: WirePosition
     /** TextLayer 专属（嵌在 spec 内，键级对齐 PHP） */
     fontFamily?: WireFontFamily
+    /**
+     * 适配模式（ADR 0023）：ImageLayer 专属条件写键——值 = cover（缺省）整键不落、
+     * 落键殿后 spec 末位（shape/align/position/fit 三端键序 parity）；宽容读，
+     * 未知枚举串原样透传（往返恒等）
+     */
+    fit?: string
 }
 
 export interface WireData {

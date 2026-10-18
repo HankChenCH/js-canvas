@@ -26,6 +26,7 @@ export {
     anchorOffset,
     contentHeight,
     contentWidth,
+    containRect,
     imageOrigin,
     layerHeight,
     layerWidth,

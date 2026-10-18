@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
     contentWidth,
+    containRect,
     createHeuristicMeasurer,
     layerHeight,
     layerWidth,
@@ -406,5 +407,44 @@ describe('图片基点（imageOrigin）', () => {
         const layer = imageLayer({ width: 50, height: 40, padding: { top: 0, bottom: 0, left: 25, right: 25 } })
         expect(contentWidth(layer)).toBe(0)
         expect(imageOrigin(layer)).toEqual({ x: 25, y: 0 })
+    })
+})
+
+/**
+ * contain 收缩矩形（containRect，ADR 0023）：值平移 PHP ImageLayerTest::testContainRectMatrix——
+ * 等比收缩长边贴内容盒（两维同一缩放系数取 min）+ align/padding 放置（imageOrigin 同门公式）；
+ * 返回矩形相对图层盒原点。内在尺寸由调用方门控为正（读取失败按 cover 走），非本函数职责
+ */
+describe('contain 收缩矩形（containRect，ADR 0023）', () => {
+    it('方图进横盒：高贴边、水平居中（PHP [25,0,50,50]）', () => {
+        expect(containRect(imageLayer({ width: 100, height: 50 }), 40, 40)).toEqual({ x: 25, y: 0, width: 50, height: 50 })
+    })
+
+    it('4:1 宽图进横盒：宽贴边、垂直居中（y 取 ⌊12.5⌋，PHP intval 同折法）', () => {
+        expect(containRect(imageLayer({ width: 100, height: 50 }), 200, 50)).toEqual({ x: 0, y: 12, width: 100, height: 25 })
+    })
+
+    it('1:4 高图进横盒：宽收缩 w=⌊12.5⌋，居中按收缩后宽（PHP [44,0,12,50]）', () => {
+        expect(containRect(imageLayer({ width: 100, height: 50 }), 100, 400)).toEqual({ x: 44, y: 0, width: 12, height: 50 })
+    })
+
+    it('对齐分量：left/top 贴内容盒原点侧、left/bottom 贴对侧（PHP 同值）', () => {
+        expect(containRect(imageLayer({ width: 100, height: 50, horizontal: 'left', vertical: 'top' }), 200, 50))
+            .toEqual({ x: 0, y: 0, width: 100, height: 25 })
+        expect(containRect(imageLayer({ width: 100, height: 50, horizontal: 'left', vertical: 'bottom' }), 200, 50))
+            .toEqual({ x: 0, y: 25, width: 100, height: 25 })
+    })
+
+    it('padding：收缩在内容盒（去 padding）上进行（PHP [35,10,30,30]）', () => {
+        const layer = imageLayer({ width: 100, height: 50, padding: { top: 10, bottom: 10, left: 10, right: 10 } })
+        expect(containRect(layer, 40, 40)).toEqual({ x: 35, y: 10, width: 30, height: 30 })
+    })
+
+    it('非对称 padding：center 仍按整盒中点、left/top 取各自 padding 分量（PHP 同值）', () => {
+        // 内容盒 90×25 → 收缩 25×25；center (37,12) / left (0,12) / top (37,20)
+        const asym = { width: 100, height: 50, padding: { top: 20, bottom: 5, left: 0, right: 10 } }
+        expect(containRect(imageLayer(asym), 100, 100)).toEqual({ x: 37, y: 12, width: 25, height: 25 })
+        expect(containRect(imageLayer({ ...asym, horizontal: 'left' }), 100, 100)).toEqual({ x: 0, y: 12, width: 25, height: 25 })
+        expect(containRect(imageLayer({ ...asym, vertical: 'top' }), 100, 100)).toEqual({ x: 37, y: 20, width: 25, height: 25 })
     })
 })

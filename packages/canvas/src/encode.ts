@@ -2,14 +2,16 @@
  * 领域 → wire 编码：canonical 输出，键级对齐 php-canvas-next 的 graph()。
  * graph → 解码 → 编码往返恒等（硬契约）的另一半；缺省字段全量落键——
  * 例外是 name/visible 条件键（layer-panel-ux 工单 01）：仅 name 非空、visible 为 false
- * 时写键；与 background 条件键（ADR 0022）：两分量皆空整键不落、落键仅非空分量，
- * 缺省形态的 wire 字节面与无字段版本完全一致。
+ * 时写键；与 background 条件键（ADR 0022）：两分量皆空整键不落、落键仅非空分量；
+ * 与 fit 条件键（ADR 0023）：ImageLayer 仅 ≠cover 落键、殿后 spec 末位——
+ * 各缺省形态的 wire 字节面与无字段版本完全一致。
  */
-import type {
-    Border,
-    Canvas,
-    CanvasBackground,
-    Layer,
+import {
+    IMAGE_FIT_COVER,
+    type Border,
+    type Canvas,
+    type CanvasBackground,
+    type Layer,
 } from './types'
 import type { WireBorder, WireBorderSide, WireCanvasBackground, WireGraph, WireLayerNode, WirePadding } from './wire'
 
@@ -73,9 +75,15 @@ function encodeLayerNode(layer: Layer): WireLayerNode {
 
     switch (layer.type) {
         case 'ImageLayer':
-            // 标记态三键（value 恒镜像 expression 原文）；未标记保持现状两键（条件写键，保三端字节 parity）
+            // 标记态三键（value 恒镜像 expression 原文）；未标记保持现状两键（条件写键，保三端字节 parity）。
+            // fit 条件写键（ADR 0023）：仅 ≠cover 落键（undefined/cover 归缺省态不落），
+            // 殿后 spec 末位（shape/align/position/fit 三端键序 parity）；未知值原样透传保往返恒等
             return {
                 ...base,
+                spec: {
+                    ...base.spec,
+                    ...(layer.fit !== undefined && layer.fit !== IMAGE_FIT_COVER ? { fit: layer.fit } : {}),
+                },
                 data: layer.expression !== null
                     ? { valueType: 'ExpressionValue', expression: layer.expression, value: layer.src }
                     : { valueType: 'StaticValue', value: layer.src },

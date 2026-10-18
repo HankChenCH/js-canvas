@@ -103,12 +103,24 @@ export interface LayerBase {
     readonly position: Position
 }
 
+/** 适配模式已知值（ADR 0023，PHP ImageLayer::FIT_COVER/FIT_CONTAIN 同名对齐）：v1 仅 contain 一档，纯枚举扩展零契约成本 */
+export const IMAGE_FIT_COVER = 'cover'
+export const IMAGE_FIT_CONTAIN = 'contain'
+
 export interface ImageLayer extends LayerBase {
     readonly type: 'ImageLayer'
     /** 原始资源引用（URL/路径）；物化结果不进文档（图层 setter 禁 I/O 红线的编辑器延伸） */
     readonly src: string | null
     /** 数据表达式标记：null = 未标记（字面直通）；非 null = 已标记，src 恒镜像表达式原文 */
     readonly expression: string | null
+    /**
+     * 适配模式（ADR 0023）：'contain' = 等比收缩至完整落入内容盒、按对齐放置、空隙透明；
+     * undefined = cover 缺省（等比铺满裁切、溢出居中）。条件写键——仅 ≠cover 落键
+     * （殿后 spec 末位 shape/align/position/fit），缺省态字节面与无字段版本一致；
+     * 未知值宽容透传（往返恒等，`(string & {})` 保字面补全），渲染面未知值按 cover
+     * 降级（白名单在渲染臂）。静态声明：不进 hydrate 改写面与表达式白名单
+     */
+    readonly fit?: 'contain' | (string & {})
 }
 
 export interface TextLayer extends LayerBase {
