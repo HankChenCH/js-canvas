@@ -223,7 +223,8 @@ export function containRect(
  * 源窗）。图片臂（内容盒）与画布背景臂（画布矩形）共用同一公式防数学漂移；
  * boxWidth×boxHeight 为目标矩形（无 padding 语义时传整盒），scale 公式与 containRect
  * 互为 max/min 镜像。imgWidth/imgHeight 须为正（非法尺寸由调用方门控——读取失败
- * 统一退化 fill 形态），窗口 ≤0 由渲染后端 drawImage 防护只画盒
+ * 统一退化 fill 形态）；极端宽高比下窗口可合法算出零维，经 srcRect 整图哨兵
+ * 落整图拉伸（ADR 0024 哨兵语义——非「后端只画盒」，目标矩形 ≤0 才是后端防护面）
  */
 export function coverSourceWindow(
     boxWidth: number,
