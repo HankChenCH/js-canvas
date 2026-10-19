@@ -21,8 +21,8 @@ function recordingBackend() {
         drawRect(x, y, width, height, bgColor) {
             calls.push({ op: 'rect', x, y, width, height, bgColor })
         },
-        drawImage(src, x, y, width, height) {
-            calls.push({ op: 'image', src, x, y, width, height })
+        drawImage(src, srcRect, dstRect) {
+            calls.push({ op: 'image', src, srcRect: { ...srcRect }, x: dstRect.x, y: dstRect.y, width: dstRect.width, height: dstRect.height })
         },
         drawText(line, x, y) {
             calls.push({ op: 'text', line, x, y })

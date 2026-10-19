@@ -61,8 +61,8 @@ function snapshotBackend() {
         drawRect(x, y, width, height) {
             records.push({ op: 'rect', x, y, w: width, h: height, line: '', expectedYDiff: 0 })
         },
-        drawImage(_src, x, y, width, height) {
-            records.push({ op: 'image', x, y, w: width, h: height, line: '', expectedYDiff: 0 })
+        drawImage(_src, _srcRect, dstRect) {
+            records.push({ op: 'image', x: dstRect.x, y: dstRect.y, w: dstRect.width, h: dstRect.height, line: '', expectedYDiff: 0 })
         },
         drawText(line, x, y) {
             records.push({ op: 'text', x, y, w: 0, h: 0, line, expectedYDiff: 0 })

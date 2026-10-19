@@ -9,8 +9,9 @@ interface CallRecord {
 }
 
 /**
- * 录制后端：imageIntrinsicSize 按注入与否挂载——缺席形态 = 后端未实现度量能力口
- * （可选成员，RenderBackend 既有实现零破坏）；显式注入 null = 能力在场但查询不可用
+ * 录制后端：blit 双矩形签名（ADR 0024）——image 记录 = src + srcRect/dstRect 矩形对象。
+ * imageIntrinsicSize 按注入与否挂载：缺席形态 = 后端未实现度量能力口（可选成员，
+ * 既有后端零破坏）；显式注入 null = 能力在场但查询不可用
  */
 function recordingBackend(intrinsic?: { width: number; height: number } | null) {
     const calls: CallRecord[] = []
@@ -25,8 +26,8 @@ function recordingBackend(intrinsic?: { width: number; height: number } | null) 
         drawRect(x, y, width, height) {
             calls.push({ op: 'rect', x, y, width, height })
         },
-        drawImage(src, x, y, width, height) {
-            calls.push({ op: 'image', src, x, y, width, height })
+        drawImage(src, srcRect, dstRect) {
+            calls.push({ op: 'image', src, srcRect: { ...srcRect }, dstRect: { ...dstRect } })
         },
         drawText() {},
         ...(intrinsic !== undefined ? { imageIntrinsicSize: intrinsicSize } : {}),
@@ -51,72 +52,232 @@ function fitCanvas(fit?: string) {
     })
 }
 
-describe('ImageLayer 臂 contain 计划（ADR 0023，PHP ImageFitPaintingTest 同款口径）', () => {
-    it('contain 收缩：40×40 进 100×50 盒 → 盒内 (25,0,50,50)、绝对 (35,5)；盒矩形照画、空隙零指令', () => {
-        const { calls, backend, intrinsicSize } = recordingBackend({ width: 40, height: 40 })
-        renderCanvas(fitCanvas('contain'), backend)
+const RECT = { op: 'rect', x: 10, y: 5, width: 100, height: 50 }
 
+describe('paintImage 全 fit 分派（ADR 0024，PHP ImageFitPaintingTest 同款口径）', () => {
+    it('cover（缺省）分派等比居中裁窗：40×40 进 100×50 盒 → srcRect 中部横带、dstRect 同门', () => {
+        const { calls, backend, intrinsicSize } = recordingBackend({ width: 40, height: 40 })
+        renderCanvas(fitCanvas(), backend)
+
+        // 内在尺寸查询为全 fit 前置（cover 也依赖度量）
         expect(intrinsicSize).toHaveBeenCalledWith('a.png')
-        // 空隙零绘制指令：盒矩形之外仅一条收缩矩形 image 记录，无 letterbox 填充
         expect(calls.map((call) => call.op)).toEqual(['begin', 'rect', 'image', 'end'])
-        expect(calls[1]).toMatchObject({ x: 10, y: 5, width: 100, height: 50 })
-        expect(calls[2]).toEqual({ op: 'image', src: 'a.png', x: 35, y: 5, width: 50, height: 50 })
+        expect(calls[1]).toMatchObject(RECT)
+        expect(calls[2]).toEqual({
+            op: 'image',
+            src: 'a.png',
+            srcRect: { x: 0, y: 10, width: 40, height: 20 },
+            dstRect: { x: 10, y: 5, width: 100, height: 50 },
+        })
     })
 
-    it('contain 按 align + padding 放置（PHP getContainRect 矩阵同值：非对称 padding center/center → 盒内 (37,12,25,25)）', () => {
+    it('显式 cover wire 同 cover（解码归一缺省，裁窗分派不变）', () => {
+        const { calls, backend } = recordingBackend({ width: 40, height: 40 })
+        renderCanvas(fitCanvas('cover'), backend)
+
+        expect(calls[2]).toEqual({
+            op: 'image',
+            src: 'a.png',
+            srcRect: { x: 0, y: 10, width: 40, height: 20 },
+            dstRect: { x: 10, y: 5, width: 100, height: 50 },
+        })
+    })
+
+    it('未知 fit 值降级 cover：白名单外（flip，从未入册）走裁窗', () => {
+        const { calls, backend } = recordingBackend({ width: 40, height: 40 })
+        renderCanvas(fitCanvas('flip'), backend)
+
+        expect(calls[2]).toEqual({
+            op: 'image',
+            src: 'a.png',
+            srcRect: { x: 0, y: 10, width: 40, height: 20 },
+            dstRect: { x: 10, y: 5, width: 100, height: 50 },
+        })
+    })
+
+    it('contain（ADR 0023 语义不动）：srcRect 整图、dstRect 收缩矩形（盒内居中）', () => {
+        const { calls, backend } = recordingBackend({ width: 40, height: 40 })
+        renderCanvas(fitCanvas('contain'), backend)
+
+        expect(calls.map((call) => call.op)).toEqual(['begin', 'rect', 'image', 'end'])
+        expect(calls[2]).toEqual({
+            op: 'image',
+            src: 'a.png',
+            srcRect: { x: 0, y: 0, width: 40, height: 40 },
+            dstRect: { x: 35, y: 5, width: 50, height: 50 },
+        })
+    })
+
+    it('fill：整图 srcRect + 与 cover 同门 dstRect（唯一差别在源矩形，不裁切不保比）', () => {
+        const { calls, backend } = recordingBackend({ width: 40, height: 40 })
+        renderCanvas(fitCanvas('fill'), backend)
+
+        expect(calls.map((call) => call.op)).toEqual(['begin', 'rect', 'image', 'end'])
+        expect(calls[2]).toEqual({
+            op: 'image',
+            src: 'a.png',
+            srcRect: { x: 0, y: 0, width: 40, height: 40 },
+            dstRect: { x: 10, y: 5, width: 100, height: 50 },
+        })
+    })
+
+    it('fill dst 随 align + padding（与 cover 同门：imageOrigin + 内容宽高）', () => {
         const canvas = decodeGraph({
             canvas: { width: 200, height: 100 },
             layers: [{
                 type: 'ImageLayer',
                 spec: {
-                    shape: { width: 100, height: 50, padding: { top: 20, bottom: 5, left: 0, right: 10 } },
+                    shape: { width: 100, height: 50, padding: { top: 10, bottom: 10, left: 10, right: 10 } },
                     align: { horizontal: 'center', vertical: 'center' },
                     position: { x: 10, y: 5, position: 'top-left' },
-                    fit: 'contain',
+                    fit: 'fill',
                 },
                 data: { valueType: 'StaticValue', value: 'a.png' },
             }],
         })
-        const { calls, backend } = recordingBackend({ width: 100, height: 100 })
+        const { calls, backend } = recordingBackend({ width: 40, height: 40 })
         renderCanvas(canvas, backend)
 
-        // 收缩 25×25 于内容盒 90×25：盒内 (37,12) → 绝对 (47,17)
-        expect(calls[2]).toEqual({ op: 'image', src: 'a.png', x: 47, y: 17, width: 25, height: 25 })
+        expect(calls[2]).toEqual({
+            op: 'image',
+            src: 'a.png',
+            srcRect: { x: 0, y: 0, width: 40, height: 40 },
+            dstRect: { x: 20, y: 15, width: 80, height: 30 },
+        })
     })
 
-    it('后端未实现度量能力（可选成员缺席）→ cover 降级走现路径', () => {
+    it('tile：可见块行主序逐块 blit（src/dst 1:1，网格居中、右/下半块截断）', () => {
+        const { calls, backend } = recordingBackend({ width: 40, height: 40 })
+        renderCanvas(fitCanvas('tile'), backend)
+
+        expect(calls.map((call) => call.op)).toEqual(['begin', 'rect', 'image', 'image', 'image', 'image', 'end'])
+        expect(calls.slice(2, 6)).toEqual([
+            {
+                op: 'image',
+                src: 'a.png',
+                srcRect: { x: 0, y: 0, width: 40, height: 40 },
+                dstRect: { x: 40, y: 10, width: 40, height: 40 },
+            },
+            {
+                op: 'image',
+                src: 'a.png',
+                srcRect: { x: 0, y: 0, width: 30, height: 40 },
+                dstRect: { x: 80, y: 10, width: 30, height: 40 },
+            },
+            {
+                op: 'image',
+                src: 'a.png',
+                srcRect: { x: 0, y: 0, width: 40, height: 5 },
+                dstRect: { x: 40, y: 50, width: 40, height: 5 },
+            },
+            {
+                op: 'image',
+                src: 'a.png',
+                srcRect: { x: 0, y: 0, width: 30, height: 5 },
+                dstRect: { x: 80, y: 50, width: 30, height: 5 },
+            },
+        ])
+    })
+
+    it('tile dst 随图层锚点位移入账，src 不随位移（40×40 图铺满 40×40 盒恰一块）', () => {
+        const canvas = decodeGraph({
+            canvas: { width: 200, height: 100 },
+            layers: [{
+                type: 'ImageLayer',
+                spec: {
+                    shape: { width: 40, height: 40 },
+                    align: { horizontal: 'left', vertical: 'top' },
+                    position: { x: 5, y: 7, position: 'top-left' },
+                    fit: 'tile',
+                },
+                data: { valueType: 'StaticValue', value: 'a.png' },
+            }],
+        })
+        const { calls, backend } = recordingBackend({ width: 40, height: 40 })
+        renderCanvas(canvas, backend)
+
+        expect(calls[2]).toEqual({
+            op: 'image',
+            src: 'a.png',
+            srcRect: { x: 0, y: 0, width: 40, height: 40 },
+            dstRect: { x: 5, y: 7, width: 40, height: 40 },
+        })
+    })
+})
+
+describe('内在尺寸不可用统一退化 fill 形态（ADR 0024 纪律改写）', () => {
+    it('能力缺席（可选成员未实现）→ 零哨兵整图 blit（不再有 cover 原语兜底）', () => {
         const { calls, backend, intrinsicSize } = recordingBackend()
         renderCanvas(fitCanvas('contain'), backend)
 
         expect(intrinsicSize).not.toHaveBeenCalled()
-        expect(calls[2]).toEqual({ op: 'image', src: 'a.png', x: 10, y: 5, width: 100, height: 50 })
+        expect(calls[2]).toEqual({
+            op: 'image',
+            src: 'a.png',
+            srcRect: { x: 0, y: 0, width: 0, height: 0 },
+            dstRect: { x: 10, y: 5, width: 100, height: 50 },
+        })
+    })
+
+    it.each([
+        ['缺省', undefined],
+        ['cover', 'cover'],
+        ['contain', 'contain'],
+        ['fill', 'fill'],
+        ['tile', 'tile'],
+        ['未知值', 'flip'],
+    ])('度量不可用（%s）→ 白名单四档统一退化 fill 形态，tile 不产生 N 块循环', (_name, fit) => {
+        const { calls, backend } = recordingBackend(null)
+        renderCanvas(fitCanvas(fit), backend)
+
+        expect(calls.filter((call) => call.op === 'image')).toEqual([{
+            op: 'image',
+            src: 'a.png',
+            srcRect: { x: 0, y: 0, width: 0, height: 0 },
+            dstRect: { x: 10, y: 5, width: 100, height: 50 },
+        }])
     })
 
     it.each([
         ['null', null],
         ['零尺寸', { width: 0, height: 0 }],
         ['负尺寸', { width: 10, height: -3 }],
-    ])('度量不可用（%s）→ cover 降级（PHP getimagesize 失败同门，损坏图不因 fit 崩渲染）', (_name, intrinsic) => {
+    ])('度量非法（%s）同退化（损坏图不因 fit 崩渲染，坏图由后端静默不画）', (_name, intrinsic) => {
         const { calls, backend } = recordingBackend(intrinsic as { width: number; height: number } | null)
-        renderCanvas(fitCanvas('contain'), backend)
+        renderCanvas(fitCanvas('cover'), backend)
 
-        expect(calls[2]).toEqual({ op: 'image', src: 'a.png', x: 10, y: 5, width: 100, height: 50 })
+        expect(calls[2]).toEqual({
+            op: 'image',
+            src: 'a.png',
+            srcRect: { x: 0, y: 0, width: 0, height: 0 },
+            dstRect: { x: 10, y: 5, width: 100, height: 50 },
+        })
     })
+})
 
-    it('未知 fit 值降级 cover：白名单在渲染臂，度量能力不被询问', () => {
+describe('QR 臂迁移（ADR 0015 内切 + ADR 0024 blit）', () => {
+    it('QR 整图 blit：srcRect 零哨兵、零内在尺寸读取，内切正方形语义不变', () => {
+        const canvas = decodeGraph({
+            canvas: { width: 200, height: 100 },
+            layers: [{
+                type: 'QrCodeLayer',
+                spec: {
+                    shape: { width: 100, height: 50, padding: { top: 5, bottom: 5, left: 5, right: 5 } },
+                    align: { horizontal: 'left', vertical: 'top' },
+                    position: { x: 0, y: 0, position: 'top-left' },
+                },
+                data: { valueType: 'StaticValue', value: 'https://example.com/qr-blit' },
+            }],
+        })
         const { calls, backend, intrinsicSize } = recordingBackend({ width: 40, height: 40 })
-        renderCanvas(fitCanvas('fill'), backend)
+        renderCanvas(canvas, backend)
 
         expect(intrinsicSize).not.toHaveBeenCalled()
-        expect(calls[2]).toEqual({ op: 'image', src: 'a.png', x: 10, y: 5, width: 100, height: 50 })
-    })
-
-    it('cover 零回归：无 fit 不询问度量能力、绘制指令与现状逐字段一致', () => {
-        const { calls, backend, intrinsicSize } = recordingBackend({ width: 40, height: 40 })
-        renderCanvas(fitCanvas(), backend)
-
-        expect(intrinsicSize).not.toHaveBeenCalled()
-        expect(calls.map((call) => call.op)).toEqual(['begin', 'rect', 'image', 'end'])
-        expect(calls[2]).toEqual({ op: 'image', src: 'a.png', x: 10, y: 5, width: 100, height: 50 })
+        expect(calls.filter((call) => call.op === 'image')).toEqual([{
+            op: 'image',
+            src: 'qr:https://example.com/qr-blit',
+            srcRect: { x: 0, y: 0, width: 0, height: 0 },
+            dstRect: { x: 5, y: 5, width: 40, height: 40 },
+        }])
     })
 })

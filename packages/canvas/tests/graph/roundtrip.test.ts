@@ -528,12 +528,12 @@ describe('编码整形收整（wire int 面兼容）', () => {
 })
 
 /**
- * fit 条件键（ADR 0023 / image-layer-fit spec §3，PHP ImageLayerTest testFit* 同款口径）：
+ * fit 条件键（ADR 0023 立键 / ADR 0024 fill/tile 转正，PHP ImageLayerTest testFit* 同款口径）：
  * spec 顶层可选键、仅 ≠cover 落键（缺省态字节面与无字段版本一致）、落键殿后 spec 末位
  * （shape/align/position/fit 三端键序 parity）；解码宽容读（无键/null/非串归缺省、
  * 未知值原样透传保往返恒等）；渲染面未知值按 cover 降级（白名单在渲染臂，render 侧锁定）
  */
-describe('fit 条件键（ADR 0023）', () => {
+describe('fit 条件键（ADR 0023/0024）', () => {
     it('缺省图层编码不落 fit 键（spec 段字节面与无字段版本一致，平移 testFitOmittedByDefault）', () => {
         const layer = decodeLayer(baseNode('ImageLayer')) as ImageLayer
         expect(layer.fit).toBeUndefined()
@@ -580,18 +580,35 @@ describe('fit 条件键（ADR 0023）', () => {
         expect(JSON.stringify(graph)).not.toContain('"fit"')
     })
 
-    it('未知 fit 值原样透传（往返恒等，平移 testUnknownFitValuePassesThrough）', () => {
+    it('fit=fill/tile 落键殿后 spec 末位（平移 testFitFillTileWrittenLastInSpec，转正不改字节面）', () => {
+        for (const fit of ['fill', 'tile'] as const) {
+            const wire = baseNode('ImageLayer', {
+                spec: { ...baseNode('ImageLayer').spec, fit },
+                data: { valueType: 'StaticValue', value: 'a.png' },
+            })
+
+            const layer = decodeLayer(wire) as ImageLayer
+            expect(layer.fit).toBe(fit)
+
+            const graph = encodeLayer(layer)
+            expect(Object.keys(graph.spec!)).toEqual(['shape', 'align', 'position', 'fit'])
+            expect(graph).toEqual(wire)
+            expect(JSON.stringify(graph)).toContain(`"position":{"x":0,"y":0,"position":"top-left"},"fit":"${fit}"},"data"`)
+        }
+    })
+
+    it('未知 fit 值原样透传（往返恒等，平移 testUnknownFitValuePassesThrough——白名单外示例用从未入册的值）', () => {
         const wire = baseNode('ImageLayer', {
-            spec: { ...baseNode('ImageLayer').spec, fit: 'fill' },
+            spec: { ...baseNode('ImageLayer').spec, fit: 'flip' },
             data: { valueType: 'StaticValue', value: 'a.png' },
         })
 
         const layer = decodeLayer(wire) as ImageLayer
-        expect(layer.fit).toBe('fill')
+        expect(layer.fit).toBe('flip')
 
         const rebuilt = encodeLayer(layer)
         expect(rebuilt).toEqual(wire)
-        expect(rebuilt.spec).toHaveProperty('fit', 'fill')
+        expect(rebuilt.spec).toHaveProperty('fit', 'flip')
     })
 
     it('宽容读：fit null / 非串值归缺省（PHP isset + is_string 门，非串不弱转）', () => {

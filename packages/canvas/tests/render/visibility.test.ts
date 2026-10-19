@@ -22,8 +22,8 @@ function recordingBackend(): { records: Record_[]; backend: RenderBackend } {
         drawRect(x, y) {
             records.push({ op: 'rect', x, y })
         },
-        drawImage(_src, x, y) {
-            records.push({ op: 'image', x, y })
+        drawImage(_src, _srcRect, dstRect) {
+            records.push({ op: 'image', x: dstRect.x, y: dstRect.y })
         },
         drawText(_line, x, y) {
             records.push({ op: 'text', x, y })
