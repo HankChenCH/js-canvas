@@ -3,18 +3,22 @@
  * 物化（工单 04 接入）→ begin → 按 priority 序遍历分派 → 容器下钻 → end。
  * 遍历/锚点合成/嵌套几何收在本模板；具体后端只实现五个绘制原语。drawImage 为
  * 双矩形 blit（ADR 0024）：srcRect → dstRect 拉伸搬运，原语零 fit 语义、零内在尺寸
- * 读取——四档 fit 的几何全部在分派层算定。另带可选内在尺寸度量能力口
- * imageIntrinsicSize?（ADR 0023 引入、ADR 0024 扩为全 fit 前置，查询而非绘制原语）。
+ * 读取——四档 fit 的几何全部在分派层算定。另带可选能力口：内在尺寸度量
+ * imageIntrinsicSize?（ADR 0023 引入、ADR 0024 扩为全 fit 前置，查询而非绘制原语），
+ * 形状原语对 drawEllipse? + drawImageMasked?（ADR 0026，两成员齐备才算形状能力
+ * 后端，clip=circle 走圆形三步、未实现即矩形降级）。
  * 文本布局策略（断行/度量）经 policies 注入，缺省为启发式对齐版（见 layout.ts）。
  */
 import {
     anchorOffset,
+    circleStroke,
     contentHeight,
     contentWidth,
     containRect,
     coverSourceRect,
     coverSourceWindow,
     imageOrigin,
+    inscribedCircleRect,
     layerHeight,
     layerWidth,
     lineHeightPx,
@@ -26,12 +30,15 @@ import {
     type TextLayoutPolicies,
 } from './layout'
 import {
+    IMAGE_CLIP_CIRCLE,
     IMAGE_FIT_CONTAIN,
     IMAGE_FIT_FILL,
     IMAGE_FIT_TILE,
     type Border,
+    type BorderSide,
     type Canvas,
     type HorizontalAlign,
+    type ImageLayer,
     type Layer,
     type VerticalAlign,
 } from './types'
@@ -105,6 +112,41 @@ export interface RenderBackend {
      * 非绘制原语
      */
     imageIntrinsicSize?(src: string): { width: number; height: number } | null
+    /**
+     * 椭圆绘制原语（ADR 0026，形状能力口之一）：在 (x, y) 起的 width×height 外接
+     * 矩形内画内切椭圆。fillColor 填充（null 跳过填充）、stroke 描边（null 不描，
+     * 形态同边框边目）——fill 与 stroke 一体，圆形框的背景与圆周环一次原语表达。
+     * 原语零形状语义、零 fit 语义，几何全在分派层（ADR 0024 方向延续）
+     */
+    drawEllipse?(
+        x: number,
+        y: number,
+        width: number,
+        height: number,
+        fillColor: string | null,
+        stroke: BorderSide | null,
+    ): void
+    /**
+     * 掩码 blit 原语（ADR 0026，形状能力口之一，drawImage 的掩码形态）：双矩形 blit
+     * （语义与 drawImage 完全一致，含 srcRect 零宽高整图哨兵）后，以 maskRect 外接
+     * 矩形的内切椭圆为掩码裁切——掩码外透明。掩码矩形是渲染面绝对坐标、与目标矩形
+     * 独立（分派层传正方形即圆）。两形状成员齐备才算形状能力后端（与 PHP
+     * ShapeCapableRenderer / Go ShapeCapableBackend 接口面同构），未实现即矩形降级
+     */
+    drawImageMasked?(src: string, srcRect: BlitRect, dstRect: BlitRect, maskRect: BlitRect): void
+}
+
+/**
+ * 形状能力后端（ADR 0026）：可选实现 drawEllipse + drawImageMasked 加法原语对的后端
+ * 形态——分派层以两成员齐备探测（PHP instanceof ShapeCapableRenderer / Go 类型断言
+ * ShapeCapableBackend 同位），未齐备对 clip=circle 声明降级矩形路径，既有后端的
+ * 既有五原语面与无 clip 声明的渲染调用面零改动
+ */
+export type ShapeCapableBackend = RenderBackend & Pick<Required<RenderBackend>, 'drawEllipse' | 'drawImageMasked'>
+
+/** 形状能力探测（renderCanvas 循环分派门；仅内部消费，后端实现侧只需挂两成员） */
+function isShapeCapable(backend: RenderBackend): backend is ShapeCapableBackend {
+    return typeof backend.drawEllipse === 'function' && typeof backend.drawImageMasked === 'function'
 }
 
 /** 图层盒的绝对几何；内容盒供 gizmo/命中测试/目验辅助共用 */
@@ -174,6 +216,13 @@ export function renderCanvas(
     backend.begin(canvas.width, canvas.height)
     paintBackground(canvas, backend)
     forEachLayerBox(canvas, (layer, box) => {
+        // 圆形档（ADR 0026）：clip 白名单 + 后端能力口探测双门命中即整层渲染面裁进
+        // 内切圆——矩形盒 drawRect 不画（背景/边框都不落矩形盒，改走椭圆填充/描边）；
+        // 未知 clip 值与缺形状能力后端照旧矩形路径（fit 未知值纪律同门）
+        if (layer.type === 'ImageLayer' && layer.clip === IMAGE_CLIP_CIRCLE && isShapeCapable(backend)) {
+            paintImageCircle(backend, layer, box, policies, options?.skipContent?.(layer) === true)
+            return
+        }
         backend.drawRect(box.x, box.y, box.width, box.height, layer.shape.backgroundColor, layer.shape.border)
         if (options?.skipContent?.(layer)) return
         paintContent(layer, box, backend, policies)
@@ -211,6 +260,134 @@ function paintBackground(canvas: Canvas, backend: RenderBackend): void {
     }
 }
 
+/**
+ * 图片臂矩形路径（ADR 0024）：盒已由 renderCanvas 循环绘制，这里只做内容 blit——
+ * 原始引用为 null 只画盒（未物化/未加载的占位语义）；fit 分派层算定几何、drawImage
+ * 原语直绘（圆形档在 renderCanvas 循环已改道，两臂共用 paintFitBlits 防数学漂移）
+ */
+function paintImageRect(
+    layer: ImageLayer,
+    box: LayerBox,
+    backend: RenderBackend,
+    policies?: TextLayoutPolicies,
+): void {
+    if (layer.src === null) return
+    paintFitBlits(layer, layer.src, box, backend, policies, (src, srcRect, dstRect) =>
+        backend.drawImage(src, srcRect, dstRect),
+    )
+}
+
+/**
+ * 圆形档三步（ADR 0026，完整圆形框——整层渲染面裁进内切圆；PHP paintImageCircle /
+ * Go paintImageCircle 同构）：
+ * ① 背景色填充进内切圆（矩形盒 drawRect 不画）；
+ * ② 内容按 fit 绘出后遮罩 blit 进圆（fit 几何照旧，只换成掩码形态原语，掩码矩形 =
+ *    内切圆矩形；内在尺寸不可用退化 fill 形态再裁圆，ADR 0024 纪律）；
+ * ③ 边框沿圆周描成环（描边参数解析规则见 circleStroke）。
+ * 内切圆边长 ≤0（内容区被 padding 吃满）零几何零绘制。
+ * 仅由 renderCanvas 的能力口探测（isShapeCapable）命中臂调用——drawEllipse/
+ * drawImageMasked 只在形状能力后端上存在
+ */
+function paintImageCircle(
+    backend: ShapeCapableBackend,
+    layer: ImageLayer,
+    box: LayerBox,
+    policies: TextLayoutPolicies | undefined,
+    skipContent: boolean,
+): void {
+    const circle = inscribedCircleRect(layer, policies)
+    if (circle.width <= 0) {
+        return
+    }
+
+    // 掩码矩形是渲染面绝对坐标（原语契约），与 fit 的 dstRect 独立
+    const circleX = box.x + circle.x
+    const circleY = box.y + circle.y
+    const maskRect: BlitRect = { x: circleX, y: circleY, width: circle.width, height: circle.height }
+    backend.drawEllipse(circleX, circleY, circle.width, circle.height, layer.shape.backgroundColor, null)
+
+    if (layer.src !== null && !skipContent) {
+        paintFitBlits(layer, layer.src, box, backend, policies, (src, srcRect, dstRect) =>
+            backend.drawImageMasked(src, srcRect, dstRect, maskRect),
+        )
+    }
+
+    const stroke = circleStroke(layer)
+    if (stroke !== null) {
+        backend.drawEllipse(circleX, circleY, circle.width, circle.height, null, stroke)
+    }
+}
+
+/**
+ * 全 fit 白名单分派（ADR 0024，cover/fill/contain/tile + 内在尺寸退化），blit 落点
+ * 由调用臂注入（矩形路径 drawImage / 圆形路径 drawImageMasked）——两形态共用同一份
+ * 分派几何防数学漂移（先绘后裁，fit 与 clip 正交；PHP paintFitBlits 同构）
+ */
+function paintFitBlits(
+    layer: ImageLayer,
+    src: string,
+    box: LayerBox,
+    backend: RenderBackend,
+    policies: TextLayoutPolicies | undefined,
+    blit: (src: string, srcRect: BlitRect, dstRect: BlitRect) => void,
+): void {
+    // cover/fill 共用目标矩形（同门）：imageOrigin + 内容宽高
+    const origin = imageOrigin(layer, policies)
+    const dstRect: BlitRect = {
+        x: box.x + origin.x,
+        y: box.y + origin.y,
+        width: box.contentWidth,
+        height: box.contentHeight,
+    }
+
+    // 内在尺寸为全 fit 前置（ADR 0024）：绘制分派点一次；能力缺席（可选成员
+    // 未实现）/返回 null/非法尺寸统一退化 fill 形态——零哨兵整图拉伸进目标
+    // 矩形（blit 化后 cover 也依赖度量，不再有原语兜底；真损坏图由后端解码
+    // 处置，渲染结局与迁移前 parity）
+    const intrinsic = backend.imageIntrinsicSize?.(src) ?? null
+    if (!usableIntrinsic(intrinsic)) {
+        blit(src, wholeImageRect(), dstRect)
+        return
+    }
+
+    // 白名单分派（ADR 0024）：四档 fit 的几何全部在此算定，未知值落 cover 臂
+    switch (layer.fit) {
+        case IMAGE_FIT_CONTAIN: {
+            // contain（ADR 0023 语义不动）：按内在比例收缩目标矩形再整图 blit
+            const rect = containRect(layer, intrinsic.width, intrinsic.height, policies)
+            blit(
+                src,
+                wholeImageRect(intrinsic.width, intrinsic.height),
+                { x: box.x + rect.x, y: box.y + rect.y, width: rect.width, height: rect.height },
+            )
+            break
+        }
+        case IMAGE_FIT_TILE:
+            // tile：可见块逐块 blit（src/dst 1:1），裁切纯几何完成、原语零裁剪参数
+            for (const block of tileRects(layer, intrinsic.width, intrinsic.height, policies)) {
+                blit(
+                    src,
+                    block.src,
+                    {
+                        x: box.x + block.dst.x,
+                        y: box.y + block.dst.y,
+                        width: block.dst.width,
+                        height: block.dst.height,
+                    },
+                )
+            }
+            break
+        case IMAGE_FIT_FILL:
+            // fill：整图进与 cover 相同的目标矩形（非等比拉伸，不裁切不留空隙）
+            blit(src, wholeImageRect(intrinsic.width, intrinsic.height), dstRect)
+            break
+        default:
+            // cover（缺省/显式归一/未知值白名单外降级）：等比居中裁窗
+            blit(src, coverSourceRect(layer, intrinsic.width, intrinsic.height, policies), dstRect)
+            break
+    }
+}
+
 /** 盒绘制之后的内容分派（镜像 PHP paintImage/paintText；QR 内容绘制在工单 04 接入） */
 function paintContent(
     layer: Layer,
@@ -219,67 +396,9 @@ function paintContent(
     policies?: TextLayoutPolicies,
 ): void {
     switch (layer.type) {
-        case 'ImageLayer': {
-            // 原始引用为 null 只画盒（未物化/未加载的占位语义）
-            if (layer.src === null) break
-
-            // cover/fill 共用目标矩形（同门）：imageOrigin + 内容宽高
-            const origin = imageOrigin(layer, policies)
-            const dstRect: BlitRect = {
-                x: box.x + origin.x,
-                y: box.y + origin.y,
-                width: box.contentWidth,
-                height: box.contentHeight,
-            }
-
-            // 内在尺寸为全 fit 前置（ADR 0024）：绘制分派点一次；能力缺席（可选成员
-            // 未实现）/返回 null/非法尺寸统一退化 fill 形态——零哨兵整图拉伸进目标
-            // 矩形（blit 化后 cover 也依赖度量，不再有原语兜底；真损坏图由后端解码
-            // 处置，渲染结局与迁移前 parity）
-            const intrinsic = backend.imageIntrinsicSize?.(layer.src) ?? null
-            if (!usableIntrinsic(intrinsic)) {
-                backend.drawImage(layer.src, wholeImageRect(), dstRect)
-                break
-            }
-
-            // 白名单分派（ADR 0024）：四档 fit 的几何全部在此算定，未知值落 cover 臂
-            switch (layer.fit) {
-                case IMAGE_FIT_CONTAIN: {
-                    // contain（ADR 0023 语义不动）：按内在比例收缩目标矩形再整图 blit
-                    const rect = containRect(layer, intrinsic.width, intrinsic.height, policies)
-                    backend.drawImage(
-                        layer.src,
-                        wholeImageRect(intrinsic.width, intrinsic.height),
-                        { x: box.x + rect.x, y: box.y + rect.y, width: rect.width, height: rect.height },
-                    )
-                    break
-                }
-                case IMAGE_FIT_TILE:
-                    // tile：可见块逐块 blit（src/dst 1:1），裁切纯几何完成、原语零裁剪参数
-                    for (const block of tileRects(layer, intrinsic.width, intrinsic.height, policies)) {
-                        backend.drawImage(
-                            layer.src,
-                            block.src,
-                            {
-                                x: box.x + block.dst.x,
-                                y: box.y + block.dst.y,
-                                width: block.dst.width,
-                                height: block.dst.height,
-                            },
-                        )
-                    }
-                    break
-                case IMAGE_FIT_FILL:
-                    // fill：整图进与 cover 相同的目标矩形（非等比拉伸，不裁切不留空隙）
-                    backend.drawImage(layer.src, wholeImageRect(intrinsic.width, intrinsic.height), dstRect)
-                    break
-                default:
-                    // cover（缺省/显式归一/未知值白名单外降级）：等比居中裁窗
-                    backend.drawImage(layer.src, coverSourceRect(layer, intrinsic.width, intrinsic.height, policies), dstRect)
-                    break
-            }
+        case 'ImageLayer':
+            paintImageRect(layer, box, backend, policies)
             break
-        }
         case 'TextLayer': {
             const origin = textOrigin(layer, policies)
             const posx = box.x + layer.shape.padding.left + origin.x

@@ -24,12 +24,14 @@ export {
 } from './preview'
 export {
     anchorOffset,
+    circleStroke,
     contentHeight,
     contentWidth,
     containRect,
     coverSourceRect,
     coverSourceWindow,
     imageOrigin,
+    inscribedCircleRect,
     layerHeight,
     layerWidth,
     lineHeightPx,
@@ -44,6 +46,7 @@ export {
     type LayerBox,
     type RenderBackend,
     type RenderCanvasOptions,
+    type ShapeCapableBackend,
     type TextDrawOptions,
     forEachLayerBox,
     qrImageSrc,

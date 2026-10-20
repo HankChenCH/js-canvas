@@ -112,6 +112,13 @@ export const IMAGE_FIT_CONTAIN = 'contain'
 export const IMAGE_FIT_FILL = 'fill'
 export const IMAGE_FIT_TILE = 'tile'
 
+/**
+ * 裁剪形状已知值（ADR 0026，PHP ImageLayer::CLIP_* 同名对齐）：值是透传字符串，
+ * 枚举扩展 wire 零成本；白名单在渲染臂，未知值渲染面按矩形降级
+ */
+export const IMAGE_CLIP_RECT = 'rect'
+export const IMAGE_CLIP_CIRCLE = 'circle'
+
 export interface ImageLayer extends LayerBase {
     readonly type: 'ImageLayer'
     /** 原始资源引用（URL/路径）；物化结果不进文档（图层 setter 禁 I/O 红线的编辑器延伸） */
@@ -128,6 +135,15 @@ export interface ImageLayer extends LayerBase {
      * 改写面与表达式白名单
      */
     readonly fit?: 'contain' | 'fill' | 'tile' | (string & {})
+    /**
+     * 裁剪形状（ADR 0026）：'circle' = 完整圆形框——背景色填充进内切圆、内容按 fit
+     * 绘出后遮罩进圆、边框沿圆周描成环；undefined = rect 缺省（不裁）。条件写键——
+     * 仅 ≠rect 落键（殿后 spec 末位 fit 之后，shape/align/position/fit/clip），
+     * 缺省态字节面与无字段版本一致；未知值宽容透传（往返恒等，`(string & {})` 保字面
+     * 补全），渲染面未知值降级矩形（白名单在渲染臂）。静态声明：不进 hydrate
+     * 改写面与表达式白名单
+     */
+    readonly clip?: 'circle' | 'rect' | (string & {})
 }
 
 export interface TextLayer extends LayerBase {

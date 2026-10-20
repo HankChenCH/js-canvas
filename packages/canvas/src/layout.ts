@@ -9,7 +9,7 @@ import {
     type LineBreaker,
     type TextMeasurerFactory,
 } from './text'
-import type { Anchor, ImageLayer, Layer, QrCodeLayer, TextLayer } from './types'
+import type { Anchor, BorderSide, ImageLayer, Layer, QrCodeLayer, TextLayer } from './types'
 
 /**
  * 文本布局策略（注入缝）：断行器 + 度量器工厂。缺省 = UAX14 简化断行器 +
@@ -338,6 +338,53 @@ export function qrOrigin(layer: QrCodeLayer, policies?: TextLayoutPolicies): { x
             : trunc(layer.shape.padding.top)
 
     return { x, y }
+}
+
+/**
+ * 内切圆矩形（ADR 0026，PHP ImageLayer::getInscribedCircleRect 同门）：边长 =
+ * min(内容区宽高)，按盒内对齐定位（alignedOrigin 同门公式——center 取整盒中点、
+ * left/top 贴 padding 原点侧），内边距即框外留白；非方盒恒正方几何（渲染面即正圆），
+ * 不变形为椭圆。纯布局计算，与 containRect/qrOrigin 同门；返回矩形相对图层盒原点、
+ * 宽恒等于高，内容区被 padding 吃满/超吃负值直通（trunc 不钳零，side ≤0 由渲染臂
+ * 防护零绘制——PHP 数组形态无规范化，JS 矩形同形，防线同位）
+ */
+export function inscribedCircleRect(
+    layer: ImageLayer,
+    policies?: TextLayoutPolicies,
+): { x: number; y: number; width: number; height: number } {
+    const side = Math.min(contentWidth(layer, policies), contentHeight(layer, policies))
+
+    return {
+        ...alignedOrigin(layer, layerWidth(layer, policies), layerHeight(layer, policies), side, side),
+        width: side,
+        height: side,
+    }
+}
+
+/**
+ * 圆周描边参数解析（ADR 0026，PHP ImageLayer::getCircleStroke 同门、Go CircleStroke
+ * 同款防线）：宽取四边已声明宽的最小值、颜色按 top→right→bottom→left 取首个非空边色、
+ * 四边全未声明不描边（规则明文在根 CONTEXT.md「裁剪形状（clip shape）」词条）。
+ * width ≤0 的边不计——JS 解码边界已把零宽收整为无边（decodeBorderSide 清边语义），
+ * 但 wire 可注入负宽、领域对象可被宿主直构（Go wire 域同面），防线随矩阵平移
+ * （Go 已声明同型分歧：PHP array_filter 仅滤 null）
+ */
+export function circleStroke(layer: ImageLayer): BorderSide | null {
+    const declared = [
+        layer.shape.border.top,
+        layer.shape.border.right,
+        layer.shape.border.bottom,
+        layer.shape.border.left,
+    ].filter((side): side is BorderSide => side !== null && side.width > 0)
+
+    if (declared.length === 0) {
+        return null
+    }
+
+    return {
+        width: Math.min(...declared.map((side) => side.width)),
+        color: declared[0]!.color,
+    }
 }
 
 /**
