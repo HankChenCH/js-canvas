@@ -103,9 +103,21 @@ export interface LayerBase {
     readonly position: Position
 }
 
-/** 适配模式已知值（ADR 0023，PHP ImageLayer::FIT_COVER/FIT_CONTAIN 同名对齐）：v1 仅 contain 一档，纯枚举扩展零契约成本 */
+/**
+ * 适配模式已知值（ADR 0023/0024，PHP ImageLayer::FIT_* 同名对齐）：值是透传字符串，
+ * 枚举扩展 wire 零成本；白名单在渲染臂，未知值渲染面按 cover 降级
+ */
 export const IMAGE_FIT_COVER = 'cover'
 export const IMAGE_FIT_CONTAIN = 'contain'
+export const IMAGE_FIT_FILL = 'fill'
+export const IMAGE_FIT_TILE = 'tile'
+
+/**
+ * 裁剪形状已知值（ADR 0026，PHP ImageLayer::CLIP_* 同名对齐）：值是透传字符串，
+ * 枚举扩展 wire 零成本；白名单在渲染臂，未知值渲染面按矩形降级
+ */
+export const IMAGE_CLIP_RECT = 'rect'
+export const IMAGE_CLIP_CIRCLE = 'circle'
 
 export interface ImageLayer extends LayerBase {
     readonly type: 'ImageLayer'
@@ -114,13 +126,24 @@ export interface ImageLayer extends LayerBase {
     /** 数据表达式标记：null = 未标记（字面直通）；非 null = 已标记，src 恒镜像表达式原文 */
     readonly expression: string | null
     /**
-     * 适配模式（ADR 0023）：'contain' = 等比收缩至完整落入内容盒、按对齐放置、空隙透明；
-     * undefined = cover 缺省（等比铺满裁切、溢出居中）。条件写键——仅 ≠cover 落键
-     * （殿后 spec 末位 shape/align/position/fit），缺省态字节面与无字段版本一致；
-     * 未知值宽容透传（往返恒等，`(string & {})` 保字面补全），渲染面未知值按 cover
-     * 降级（白名单在渲染臂）。静态声明：不进 hydrate 改写面与表达式白名单
+     * 适配模式（ADR 0023/0024）：'contain' = 等比收缩至完整落入内容盒、按对齐放置、
+     * 空隙透明；'fill' = 整图拉伸铺满内容盒（不裁切不保比）；'tile' = 内在尺寸 1:1
+     * 平铺、aligned 锚定、绘制面止于内容盒；undefined = cover 缺省（等比铺满裁切、
+     * 溢出居中）。条件写键——仅 ≠cover 落键（殿后 spec 末位 shape/align/position/fit），
+     * 缺省态字节面与无字段版本一致；未知值宽容透传（往返恒等，`(string & {})` 保字面
+     * 补全），渲染面未知值按 cover 降级（白名单在渲染臂）。静态声明：不进 hydrate
+     * 改写面与表达式白名单
      */
-    readonly fit?: 'contain' | (string & {})
+    readonly fit?: 'contain' | 'fill' | 'tile' | (string & {})
+    /**
+     * 裁剪形状（ADR 0026）：'circle' = 完整圆形框——背景色填充进内切圆、内容按 fit
+     * 绘出后遮罩进圆、边框沿圆周描成环；undefined = rect 缺省（不裁）。条件写键——
+     * 仅 ≠rect 落键（殿后 spec 末位 fit 之后，shape/align/position/fit/clip），
+     * 缺省态字节面与无字段版本一致；未知值宽容透传（往返恒等，`(string & {})` 保字面
+     * 补全），渲染面未知值降级矩形（白名单在渲染臂）。静态声明：不进 hydrate
+     * 改写面与表达式白名单
+     */
+    readonly clip?: 'circle' | 'rect' | (string & {})
 }
 
 export interface TextLayer extends LayerBase {

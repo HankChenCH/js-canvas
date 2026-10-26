@@ -73,6 +73,12 @@ export interface WireSpec {
      * 未知枚举串原样透传（往返恒等）
      */
     fit?: string
+    /**
+     * 裁剪形状（ADR 0026）：ImageLayer 专属条件写键——值 = rect（缺省）整键不落、
+     * 落键殿后 spec 末位 fit 之后（shape/align/position/fit/clip 三端键序 parity）；
+     * 宽容读，未知枚举串原样透传（往返恒等）
+     */
+    clip?: string
 }
 
 export interface WireData {

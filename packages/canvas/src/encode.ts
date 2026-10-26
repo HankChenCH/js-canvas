@@ -7,6 +7,7 @@
  * 各缺省形态的 wire 字节面与无字段版本完全一致。
  */
 import {
+    IMAGE_CLIP_RECT,
     IMAGE_FIT_COVER,
     type Border,
     type Canvas,
@@ -83,6 +84,10 @@ function encodeLayerNode(layer: Layer): WireLayerNode {
                 spec: {
                     ...base.spec,
                     ...(layer.fit !== undefined && layer.fit !== IMAGE_FIT_COVER ? { fit: layer.fit } : {}),
+                    // clip 条件写键（ADR 0026）：仅 ≠rect 落键（undefined/rect 归缺省态不落），
+                    // 殿后 spec 末位 fit 之后（shape/align/position/fit/clip 三端键序 parity）；
+                    // 未知值原样透传保往返恒等
+                    ...(layer.clip !== undefined && layer.clip !== IMAGE_CLIP_RECT ? { clip: layer.clip } : {}),
                 },
                 data: layer.expression !== null
                     ? { valueType: 'ExpressionValue', expression: layer.expression, value: layer.src }

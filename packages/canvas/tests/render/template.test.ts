@@ -21,8 +21,8 @@ function recordingBackend() {
         drawRect(x, y, width, height, bgColor, border) {
             calls.push({ op: 'rect', x, y, width, height, bgColor, border })
         },
-        drawImage(src, x, y, width, height) {
-            calls.push({ op: 'image', src, x, y, width, height })
+        drawImage(src, srcRect, dstRect) {
+            calls.push({ op: 'image', src, srcRect: { ...srcRect }, x: dstRect.x, y: dstRect.y, width: dstRect.width, height: dstRect.height })
         },
         drawText(line, x, y) {
             calls.push({ op: 'text', line, x, y })
@@ -193,9 +193,10 @@ describe('五原语渲染模板', () => {
 
         const images = calls.filter((call) => call.op === 'image')
         expect(images).toEqual([
-            { op: 'image', src: 'a.png', x: 10, y: 10, width: 80, height: 80 },
-            // QR：图层原点起按宽度正方形铺放（PHP paintQrCode 同门）
-            { op: 'image', src: 'qr:qr', x: 0, y: 0, width: 10, height: 10 },
+            // 能力缺席 mock：ImageLayer 臂退化 fill 形态（srcRect 零哨兵整图）
+            { op: 'image', src: 'a.png', srcRect: { x: 0, y: 0, width: 0, height: 0 }, x: 10, y: 10, width: 80, height: 80 },
+            // QR：图层原点起按宽度正方形铺放（PHP paintQrCode 同门；整图 blit 零哨兵）
+            { op: 'image', src: 'qr:qr', srcRect: { x: 0, y: 0, width: 0, height: 0 }, x: 0, y: 0, width: 10, height: 10 },
         ])
 
         const texts = calls.filter((call) => call.op === 'text')
@@ -227,7 +228,7 @@ describe('五原语渲染模板', () => {
 
         expect(calls.filter((call) => call.op === 'image')).toEqual([
             // center：(80-30)/2=25 → x=10+25=35，(40-30)/2=5 → y=20+5=25
-            { op: 'image', src: 'qr:https://example.com/join', x: 35, y: 25, width: 30, height: 30 },
+            { op: 'image', src: 'qr:https://example.com/join', srcRect: { x: 0, y: 0, width: 0, height: 0 }, x: 35, y: 25, width: 30, height: 30 },
         ])
         // 盒仍按声明（80×40）；padding 留白露盒背景
         expect(rects(calls)[0]).toMatchObject({ width: 80, height: 40 })
@@ -249,7 +250,7 @@ describe('五原语渲染模板', () => {
 
         // side = min(60, 60) = 60；left/top → padding 原点 (20, 20)
         expect(calls.filter((call) => call.op === 'image')).toEqual([
-            { op: 'image', src: 'qr:https://example.com/anchor', x: 20, y: 20, width: 60, height: 60 },
+            { op: 'image', src: 'qr:https://example.com/anchor', srcRect: { x: 0, y: 0, width: 0, height: 0 }, x: 20, y: 20, width: 60, height: 60 },
         ])
     })
 
@@ -279,7 +280,7 @@ describe('五原语渲染模板', () => {
         expect(calls.filter((call) => call.op === 'image')).toEqual([
             // 单元格内容层与单元格同原点（10, 20）；addContentLayer 副作用把内容宽
             // 同步为 cell 宽 50、高压平为 cell 高 40，side = min(50, 40) = 40
-            { op: 'image', src: 'qr:cell', x: 10, y: 20, width: 40, height: 40 },
+            { op: 'image', src: 'qr:cell', srcRect: { x: 0, y: 0, width: 0, height: 0 }, x: 10, y: 20, width: 40, height: 40 },
         ])
     })
 

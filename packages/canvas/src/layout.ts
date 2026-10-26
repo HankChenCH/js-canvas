@@ -9,7 +9,7 @@ import {
     type LineBreaker,
     type TextMeasurerFactory,
 } from './text'
-import type { Anchor, ImageLayer, Layer, QrCodeLayer, TextLayer } from './types'
+import type { Anchor, BorderSide, ImageLayer, Layer, QrCodeLayer, TextLayer } from './types'
 
 /**
  * 文本布局策略（注入缝）：断行器 + 度量器工厂。缺省 = UAX14 简化断行器 +
@@ -218,6 +218,94 @@ export function containRect(
 }
 
 /**
+ * cover 裁窗公式唯一落点（ADR 0024，PHP ImageLayer::coverSourceWindow 同门）：
+ * 源图坐标系里与目标矩形同宽高比的窗口——窗外部分被裁切不绘制，恒居中裁（对齐不进
+ * 源窗）。图片臂（内容盒）与画布背景臂（画布矩形）共用同一公式防数学漂移；
+ * boxWidth×boxHeight 为目标矩形（无 padding 语义时传整盒），scale 公式与 containRect
+ * 互为 max/min 镜像。imgWidth/imgHeight 须为正（非法尺寸由调用方门控——读取失败
+ * 统一退化 fill 形态）；极端宽高比下窗口可合法算出零维，经 srcRect 整图哨兵
+ * 落整图拉伸（ADR 0024 哨兵语义——非「后端只画盒」，目标矩形 ≤0 才是后端防护面）
+ */
+export function coverSourceWindow(
+    boxWidth: number,
+    boxHeight: number,
+    imgWidth: number,
+    imgHeight: number,
+): { x: number; y: number; width: number; height: number } {
+    const scale = Math.max(boxWidth / imgWidth, boxHeight / imgHeight)
+    const width = trunc(boxWidth / scale)
+    const height = trunc(boxHeight / scale)
+
+    return {
+        x: trunc((imgWidth - width) / 2),
+        y: trunc((imgHeight - height) / 2),
+        width,
+        height,
+    }
+}
+
+/**
+ * cover 等比居中裁窗的图层版（ADR 0024，PHP ImageLayer::getCoverRect 同门）：
+ * 目标矩形取内容盒——padding 经内容盒收缩间接收窄窗口，对齐不进源窗。返回矩形为
+ * 源图坐标；imgWidth/imgHeight 须为正（非法尺寸由调用方门控——读取失败统一退化
+ * fill 形态），与 containRect 同门纯布局函数
+ */
+export function coverSourceRect(
+    layer: ImageLayer,
+    imgWidth: number,
+    imgHeight: number,
+    policies?: TextLayoutPolicies,
+): { x: number; y: number; width: number; height: number } {
+    return coverSourceWindow(contentWidth(layer, policies), contentHeight(layer, policies), imgWidth, imgHeight)
+}
+
+/** tile 单个可见块：src（源图坐标）/dst（图层盒坐标，与 containRect 同门）可见子矩形一一对应 */
+export interface TileBlock {
+    src: { x: number; y: number; width: number; height: number }
+    dst: { x: number; y: number; width: number; height: number }
+}
+
+/**
+ * tile 可见块矩形组（ADR 0024，PHP ImageLayer::getTileRects 同门）：单元 = 内在尺寸
+ * 1:1 零参数，首块左上锚定于对齐 + padding（alignedOrigin 同门——小图 center 网格
+ * 整体居中、大图 center 锚点为负露出图片中部），网格自首块向右向下无限延伸，绘制面 =
+ * 网格 ∩ 内容盒：末行末列半块截断、锚点未覆盖处空隙透明露下层，行主序。每块 src/dst
+ * 一一对应（可见子矩形 1:1 映射，src 为源图坐标、dst 相对图层盒原点）；可见块数不设
+ * 上限（静默截断是语义意外）。纯布局计算；imgWidth/imgHeight 须为正（非法尺寸由
+ * 调用方门控），零块 = 内容区被 padding 吃满或交集为空
+ */
+export function tileRects(
+    layer: ImageLayer,
+    imgWidth: number,
+    imgHeight: number,
+    policies?: TextLayoutPolicies,
+): TileBlock[] {
+    const anchor = alignedOrigin(layer, layerWidth(layer, policies), layerHeight(layer, policies), imgWidth, imgHeight)
+    const left = trunc(layer.shape.padding.left)
+    const top = trunc(layer.shape.padding.top)
+    const right = left + contentWidth(layer, policies)
+    const bottom = top + contentHeight(layer, policies)
+
+    const blocks: TileBlock[] = []
+    for (let y = anchor.y; y < bottom; y += imgHeight) {
+        const dstY = Math.max(y, top)
+        const dstHeight = Math.min(y + imgHeight, bottom) - dstY
+        if (dstHeight <= 0) continue
+        for (let x = anchor.x; x < right; x += imgWidth) {
+            const dstX = Math.max(x, left)
+            const dstWidth = Math.min(x + imgWidth, right) - dstX
+            if (dstWidth <= 0) continue
+            blocks.push({
+                src: { x: dstX - x, y: dstY - y, width: dstWidth, height: dstHeight },
+                dst: { x: dstX, y: dstY, width: dstWidth, height: dstHeight },
+            })
+        }
+    }
+
+    return blocks
+}
+
+/**
  * 二维码内容边长 = min(内容区宽, 内容区高)：内切于内容盒的正方形（PHP getContentSide，
  * quiet zone 语义——padding 留白即码外静区）。内容区负值直通（trunc 不钳零，
  * ≤0 由渲染后端 drawImage 防护只画盒）
@@ -250,6 +338,53 @@ export function qrOrigin(layer: QrCodeLayer, policies?: TextLayoutPolicies): { x
             : trunc(layer.shape.padding.top)
 
     return { x, y }
+}
+
+/**
+ * 内切圆矩形（ADR 0026，PHP ImageLayer::getInscribedCircleRect 同门）：边长 =
+ * min(内容区宽高)，按盒内对齐定位（alignedOrigin 同门公式——center 取整盒中点、
+ * left/top 贴 padding 原点侧），内边距即框外留白；非方盒恒正方几何（渲染面即正圆），
+ * 不变形为椭圆。纯布局计算，与 containRect/qrOrigin 同门；返回矩形相对图层盒原点、
+ * 宽恒等于高，内容区被 padding 吃满/超吃负值直通（trunc 不钳零，side ≤0 由渲染臂
+ * 防护零绘制——PHP 数组形态无规范化，JS 矩形同形，防线同位）
+ */
+export function inscribedCircleRect(
+    layer: ImageLayer,
+    policies?: TextLayoutPolicies,
+): { x: number; y: number; width: number; height: number } {
+    const side = Math.min(contentWidth(layer, policies), contentHeight(layer, policies))
+
+    return {
+        ...alignedOrigin(layer, layerWidth(layer, policies), layerHeight(layer, policies), side, side),
+        width: side,
+        height: side,
+    }
+}
+
+/**
+ * 圆周描边参数解析（ADR 0026，PHP ImageLayer::getCircleStroke 同门、Go CircleStroke
+ * 同款防线）：宽取四边已声明宽的最小值、颜色按 top→right→bottom→left 取首个非空边色、
+ * 四边全未声明不描边（规则明文在根 CONTEXT.md「裁剪形状（clip shape）」词条）。
+ * width ≤0 的边不计——JS 解码边界已把零宽收整为无边（decodeBorderSide 清边语义），
+ * 但 wire 可注入负宽、领域对象可被宿主直构（Go wire 域同面），防线随矩阵平移
+ * （Go 已声明同型分歧：PHP array_filter 仅滤 null）
+ */
+export function circleStroke(layer: ImageLayer): BorderSide | null {
+    const declared = [
+        layer.shape.border.top,
+        layer.shape.border.right,
+        layer.shape.border.bottom,
+        layer.shape.border.left,
+    ].filter((side): side is BorderSide => side !== null && side.width > 0)
+
+    if (declared.length === 0) {
+        return null
+    }
+
+    return {
+        width: Math.min(...declared.map((side) => side.width)),
+        color: declared[0]!.color,
+    }
 }
 
 /**

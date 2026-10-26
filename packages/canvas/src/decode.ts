@@ -11,6 +11,7 @@ import { layerHeight } from './layout'
 import {
     ANCHORS,
     HORIZONTAL_ALIGNS,
+    IMAGE_CLIP_RECT,
     IMAGE_FIT_COVER,
     VERTICAL_ALIGNS,
     type Align,
@@ -279,13 +280,26 @@ function decodeImageFit(spec: Record<string, unknown>): ImageLayer['fit'] {
     return spec.fit
 }
 
+/**
+ * 裁剪形状宽容读（ADR 0026，镜像 PHP ImageLayer::fromGraph 的 isset + is_string 门，
+ * decodeImageFit 同门）：键在场且为字符串才收；'rect' 归一缺省 undefined（显式缺省
+ * 形态合法、编码侧不落键，name=""/fit cover 先例）；未知枚举串原样透传（往返恒等），
+ * 渲染面未知值降级矩形（白名单在渲染臂）。静态声明：随领域透传，不进表达式白名单
+ */
+function decodeImageClip(spec: Record<string, unknown>): ImageLayer['clip'] {
+    if (!Object.hasOwn(spec, 'clip') || typeof spec.clip !== 'string' || spec.clip === IMAGE_CLIP_RECT) {
+        return undefined
+    }
+    return spec.clip
+}
+
 function decodeImageLayer(node: Record<string, unknown>): Layer {
     const spec = asRecord(node.spec) ?? {}
     const data = asRecord(node.data)
     const expression = decodeExpressionMark(data)
     if (expression !== null) {
         // 标记态：src := expression 原样（'' 不做 →null 归一，PHP rawImg 同门）
-        return { type: 'ImageLayer', ...decodeBase(node, 'ImageLayer'), src: expression, expression, fit: decodeImageFit(spec) }
+        return { type: 'ImageLayer', ...decodeBase(node, 'ImageLayer'), src: expression, expression, fit: decodeImageFit(spec), clip: decodeImageClip(spec) }
     }
 
     const raw = data?.value
@@ -296,6 +310,7 @@ function decodeImageLayer(node: Record<string, unknown>): Layer {
         src: raw == null || raw === '' ? null : String(raw),
         expression: null,
         fit: decodeImageFit(spec),
+        clip: decodeImageClip(spec),
     }
 }
 
