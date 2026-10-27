@@ -15,6 +15,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import jpeg from 'jpeg-js'
+import { expect } from 'vitest'
 
 /** 像素取值器：返回 [r, g, b] */
 export type PixelFn = (x: number, y: number) => readonly [number, number, number]
@@ -81,6 +82,102 @@ export function encodePng(width: number, height: number, pixel: PixelFn): Uint8A
             PNG_SIGNATURE,
             pngChunk('IHDR', ihdr),
             pngChunk('IDAT', deflateSync(raw)),
+            pngChunk('IEND', Buffer.alloc(0)),
+        ]),
+    )
+}
+
+/** RGBA 像素取值器：返回 [r, g, b, a] */
+export type RgbaPixelFn = (x: number, y: number) => readonly [number, number, number, number]
+
+/**
+ * 编码 8 位 RGBA PNG（colorType 6、filter 0、非隔行）。评审 P0-1 夹具盲区的补口：
+ * `qrcode` 包物化产物与带 alpha 的用户图恒为此形态——此前 helpers 只产 RGB，
+ * RGBA 嵌入截断问题无测试可达
+ */
+export function encodePngRgba(width: number, height: number, pixel: RgbaPixelFn): Uint8Array {
+    const ihdr = Buffer.alloc(13)
+    ihdr.writeUInt32BE(width, 0)
+    ihdr.writeUInt32BE(height, 4)
+    ihdr[8] = 8 // bit depth
+    ihdr[9] = 6 // color type: RGBA
+    const raw = Buffer.alloc(height * (1 + width * 4))
+    for (let y = 0; y < height; y += 1) {
+        const row = y * (1 + width * 4)
+        raw[row] = 0 // filter none
+        for (let x = 0; x < width; x += 1) {
+            const [r, g, b, a] = pixel(x, y)
+            const o = row + 1 + x * 4
+            raw[o] = r
+            raw[o + 1] = g
+            raw[o + 2] = b
+            raw[o + 3] = a
+        }
+    }
+    return new Uint8Array(
+        Buffer.concat([
+            PNG_SIGNATURE,
+            pngChunk('IHDR', ihdr),
+            pngChunk('IDAT', deflateSync(raw)),
+            pngChunk('IEND', Buffer.alloc(0)),
+        ]),
+    )
+}
+
+/**
+ * 编码 8 位调色板 PNG + tRNS 透明色板（colorType 3 + tRNS）：pdfkit 的
+ * loadIndexedAlphaChannel() 异步臂（与 RGBA 的 splitAlphaChannel 同门截断）
+ * 的夹具载体。palette 为 RGB 三元组数组，alphaByIndex 与之等长（255 = 不透明）
+ */
+export function encodePngPaletteTrns(width: number, height: number, palette: ReadonlyArray<readonly [number, number, number]>, alphaByIndex: ReadonlyArray<number>, indexAt: (x: number, y: number) => number): Uint8Array {
+    const ihdr = Buffer.alloc(13)
+    ihdr.writeUInt32BE(width, 0)
+    ihdr.writeUInt32BE(height, 4)
+    ihdr[8] = 8 // bit depth
+    ihdr[9] = 3 // color type: indexed
+    const plte = Buffer.alloc(palette.length * 3)
+    palette.forEach(([r, g, b], i) => {
+        plte[i * 3] = r
+        plte[i * 3 + 1] = g
+        plte[i * 3 + 2] = b
+    })
+    const trns = Buffer.from(alphaByIndex)
+    const raw = Buffer.alloc(height * (1 + width))
+    for (let y = 0; y < height; y += 1) {
+        const row = y * (1 + width)
+        raw[row] = 0 // filter none
+        for (let x = 0; x < width; x += 1) {
+            raw[row + 1 + x] = indexAt(x, y)
+        }
+    }
+    return new Uint8Array(
+        Buffer.concat([
+            PNG_SIGNATURE,
+            pngChunk('IHDR', ihdr),
+            pngChunk('PLTE', plte),
+            pngChunk('tRNS', trns),
+            pngChunk('IDAT', deflateSync(raw)),
+            pngChunk('IEND', Buffer.alloc(0)),
+        ]),
+    )
+}
+
+/**
+ * 隔行（Adam7）标记的 PNG 头夹具：IHDR interlace=1 + 占位 IDAT。仅供「隔行输入
+ * 响亮报错」断言用——拍平器不支持 Adam7 重构，PDF 产物守门在报错面而非字节面
+ */
+export function encodePngInterlacedStub(width: number, height: number): Uint8Array {
+    const ihdr = Buffer.alloc(13)
+    ihdr.writeUInt32BE(width, 0)
+    ihdr.writeUInt32BE(height, 4)
+    ihdr[8] = 8
+    ihdr[9] = 2 // RGB
+    ihdr[12] = 1 // interlace: Adam7
+    return new Uint8Array(
+        Buffer.concat([
+            PNG_SIGNATURE,
+            pngChunk('IHDR', ihdr),
+            pngChunk('IDAT', deflateSync(Buffer.alloc(8))),
             pngChunk('IEND', Buffer.alloc(0)),
         ]),
     )
@@ -206,6 +303,18 @@ export function withPdfFile<T>(pdf: Uint8Array, fn: (pdfPath: string) => T): T {
     } finally {
         fs.rmSync(dir, { recursive: true, force: true })
     }
+}
+
+/**
+ * 产物完整性守门（评审 P0-1 回归断言面）：%PDF 头 + startxref（xref 表在）+
+ * %%EOF 尾在场。RGBA 截断史的残件缺 startxref/trailer——pdfinfo 读通之外的
+ * 字节级逃逸检测，不依赖 poppler 在场
+ */
+export function expectWellFormedPdf(pdf: Uint8Array): void {
+    const text = Buffer.from(pdf).toString('latin1')
+    expect(text.startsWith('%PDF-'), '产物缺 %PDF 头').toBe(true)
+    expect(text, '产物缺 startxref（xref 表缺席 = 截断残件）').toContain('startxref')
+    expect(text.trimEnd().endsWith('%%EOF'), '产物缺 %%EOF 尾（截断残件）').toBe(true)
 }
 
 /** pdfinfo 输出取「key: value」字段值 */

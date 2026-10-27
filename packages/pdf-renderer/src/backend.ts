@@ -22,6 +22,7 @@ import type { Border, RenderBackend, ShapeCapableBackend, TextDrawOptions, BlitR
 import { parseColor, type Rgba } from './color'
 import { imageDimensions } from './decode'
 import { PX_TO_PT, embedBlit } from './image'
+import { flattenPngForEmbed } from './png'
 import { drawTextLine } from './text'
 import { isRemoteURL } from './url'
 
@@ -321,14 +322,19 @@ export class PdfRenderer implements RenderBackend, ShapeCapableBackend {
     /**
      * openDeduped 内容 hash → 已开图实例（对位 fpdf 按名去重）：pdfkit 的 _imageRegistry
      * 只对 string src 去重，Buffer 每次都新开对象——内容寻址的实例表保证 tile 多块/
-     * 重复引用同一图片只嵌一份字节（去重断言见 tests/image.test.ts）
+     * 重复引用同一图片只嵌一份字节（去重断言见 tests/image.test.ts）。
+     * 嵌入前置拍平（评审 P0-1）：会触发 pdfkit 异步收尾的 PNG（alpha 通道/调色板
+     * tRNS/隔行）在 openImage 之前同步拍平成 RGB——finalize 落在 end() 同步排空之后
+     * 产出无 xref/trailer 的静默残件，见 src/png.ts 文件头根因实证。拍平键 = 原
+     * 字节 hash（拍平确定，同一图片只拍一次）
      */
     private openDeduped(data: Uint8Array): PDFKit.Mixins.PDFImage {
         const hash = createHash('sha256').update(data).digest('hex')
         let img = this.images.get(hash)
         if (img === undefined) {
+            const embedBytes = flattenPngForEmbed(data)
             img = (this.doc as unknown as { openImage(src: Buffer): PDFKit.Mixins.PDFImage }).openImage(
-                Buffer.from(data.buffer, data.byteOffset, data.byteLength),
+                Buffer.from(embedBytes.buffer, embedBytes.byteOffset, embedBytes.byteLength),
             )
             this.images.set(hash, img)
         }

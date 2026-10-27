@@ -4,6 +4,7 @@ import { decodeGraph, renderPagesAs } from '@hankchen/canvas'
 import type { Canvas } from '@hankchen/canvas'
 
 import { PdfRenderer } from '../src/backend'
+import { renderCanvasAsPdf, createDefaultResolver } from '../src/resolver'
 import {
     BLUE,
     BMP_MAGIC,
@@ -13,14 +14,20 @@ import {
     WHITE,
     encodeJpeg,
     encodePng,
+    encodePngInterlacedStub,
+    encodePngPaletteTrns,
+    encodePngRgba,
     expectPageSize,
     expectPixel,
     expectPixelNear,
+    expectWellFormedPdf,
+    makeTempDir,
     pageText,
     pdfInfoField,
     popplerAvailable,
     rasterizePage,
     runPoppler,
+    samplePixel,
     twoBandExifJpeg,
     twoColorPng,
     withPdfFile,
@@ -299,6 +306,71 @@ describe('内容去重（05 号决议补件 #1：内容 hash → 实例表，同
             new PdfRenderer(),
         )
         expect(distinct.length).toBeGreaterThan(once.length * 1.7)
+    })
+})
+
+maybePoppler('带 alpha 通道 PNG 嵌入完整性（评审 P0-1：embed 前拍平，产物零截断）', () => {
+    it('RGBA PNG 图片层：pdfinfo 读通 + startxref/%%EOF 在场 + 不透明区采样正确', () => {
+        // 左红(不透明) / 中透明 / 右蓝(不透明)：拍平后中带合成到白底
+        const rgba = encodePngRgba(20, 10, (x) =>
+            x < 8 ? [255, 0, 0, 255] : x < 12 ? [0, 255, 0, 0] : [0, 0, 255, 255],
+        )
+        const src = writeTemp('rgba.png', rgba)
+        const pdf = renderPdf(imagePage({ width: 20, height: 10, src, fit: 'fill' }), new PdfRenderer())
+        expectWellFormedPdf(pdf)
+        expect(pdfInfoField(withPdfFile(pdf, (p) => runPoppler('pdfinfo', [p])), 'Pages')).toBe('1')
+        const img = rasterizePage(pdf, 1, 20, 10)
+        expectPixel(img, 4, 5, RED)
+        expectPixel(img, 10, 5, WHITE) // alpha 0 拍平 = 白底合成
+        expectPixel(img, 15, 5, BLUE)
+    })
+
+    it('调色板 + tRNS PNG（loadIndexedAlphaChannel 异步臂）：同门截断路径拍平后读通', () => {
+        const src = writeTemp(
+            'palette-trns.png',
+            encodePngPaletteTrns(20, 10, [RED, BLUE], [255, 0], (x) => (x < 10 ? 0 : 1)),
+        )
+        const pdf = renderPdf(imagePage({ width: 20, height: 10, src, fit: 'fill' }), new PdfRenderer())
+        expectWellFormedPdf(pdf)
+        const img = rasterizePage(pdf, 1, 20, 10)
+        expectPixel(img, 4, 5, RED)
+        expectPixel(img, 15, 5, WHITE) // tRNS alpha 0 的索引 = 白底合成
+    })
+
+    it('QR 图层（CJK 内容，qrcode 产物恒 RGBA）经完整管线：产物完整 + 码区落墨（P0-1/P0-2 联合回归）', async () => {
+        const canvas = decodeGraph({
+            canvas: { width: 60, height: 60, background: { color: '#ffffff' } },
+            layers: [
+                {
+                    type: 'QrCodeLayer',
+                    spec: { shape: { width: 40, height: 40 }, position: { x: 10, y: 10 } },
+                    data: { valueType: 'StaticValue', value: '证书批量生成：图层树 → PDF 直嵌' },
+                },
+            ],
+        })
+        const pdf = await renderCanvasAsPdf(canvas, { resolver: createDefaultResolver({ cacheRoot: makeTempDir() }) })
+        expectWellFormedPdf(pdf)
+        expect(pdfInfoField(withPdfFile(pdf, (p) => runPoppler('pdfinfo', [p])), 'Pages')).toBe('1')
+        // 码区有墨（margin=0，finder 图案贴角）：扫盒内存在暗像素即证 XObject 落栅格
+        const img = rasterizePage(pdf, 1, 60, 60)
+        let darkest = 255
+        for (let y = 12; y < 48; y += 1) {
+            for (let x = 12; x < 48; x += 1) {
+                const [r, g, b] = samplePixel(img, x, y)
+                darkest = Math.min(darkest, Math.min(r, g, b))
+            }
+        }
+        expect(darkest).toBeLessThan(64)
+    })
+})
+
+describe('隔行 PNG 响亮报错（评审 P0-1 防御面：pdfkit 异步臂的第三条入口，拍平器不重构 Adam7）', () => {
+    it('隔行输入报错中止而非静默截断（失败弃件无产物逃逸）', () => {
+        const r = new PdfRenderer()
+        r.begin(10, 10)
+        const src = writeTemp('interlaced.png', encodePngInterlacedStub(8, 8))
+        expect(() => r.drawImage(src, { x: 0, y: 0, width: 0, height: 0 }, { x: 0, y: 0, width: 5, height: 5 })).toThrow(/隔行/)
+        expect(r.end()).toBeNull() // 失败弃件
     })
 })
 
