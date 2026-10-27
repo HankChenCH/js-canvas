@@ -28,3 +28,24 @@ const backend = new ImageRendererBackend()
 await createDefaultResolver().resolve(canvas, backend) // 渲染前异步物化（可选）
 const png: Uint8Array = renderAs<Uint8Array>(canvas, backend)
 ```
+
+## 平台支持面
+
+- **macOS / Linux 明确支持**（CI 双平台矩阵验证；`@napi-rs/canvas` 1.0.13 预编译
+  native 包按 platform 自动安装，darwin-x64/arm64 与 linux-x64/arm64/glibc/musl
+  均在发布面）。
+- **Windows 不承诺**：napi 有 win32 包但本仓不在 CI 验证，出问题按社区包自行排查；
+  预编译 native 包体积较大（每个平台包数十 MB，安装时按 `os`/`cpu` 只拉对应
+  optional dependency）。
+
+## 目验样张
+
+```sh
+pnpm visualcheck   # 仓根一键两包；或本包内 node scripts/visualcheck.mjs [输出路径]
+```
+
+400×520 综合样张（九条验收线：叠加次序/中文禁则断行/表格嵌套/QR/cover/自适应宽/
+页脚等）输出到 `visualcheck-output/`（gitignore）。字体探针纪律：候选逐个以渲染端
+同一入口「存在且可加载」判取（TTC 拒收），全缺报错逐条列原因；`JS_CANVAS_VISUAL_FONT`
+可指定单体 TTF，CI 冒烟可设 `JS_CANVAS_ALLOW_NO_FONT=1` 让字体腿 skip。底座升级
+必须先过样张目验门禁（AGENTS.md「版本升级样张门禁」条款）。

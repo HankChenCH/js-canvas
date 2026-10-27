@@ -30,7 +30,8 @@
     "scripts": {
         "build": "tsup",
         "test": "vitest run",
-        "typecheck": "tsc --noEmit -p tsconfig.json"
+        "typecheck": "tsc --noEmit -p tsconfig.json",
+        "visualcheck": "node scripts/visualcheck.mjs"
     },
     "dependencies": {
         "@hankchen/canvas": "workspace:*",

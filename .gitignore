@@ -4,3 +4,6 @@ coverage/
 *.tsbuildinfo
 .vite/
 .DS_Store
+
+# 目验样张产物（工票 12：对位 go visual-check.png/pdf 的 gitignore 纪律，人审后不入库）
+visualcheck-output/
