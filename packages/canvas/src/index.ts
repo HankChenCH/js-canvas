@@ -44,13 +44,17 @@ export {
 export {
     type BlitRect,
     type LayerBox,
+    ProductTypeMismatchError,
     type RenderBackend,
     type RenderCanvasOptions,
     type ShapeCapableBackend,
     type TextDrawOptions,
     forEachLayerBox,
     qrImageSrc,
+    renderAs,
     renderCanvas,
+    renderPages,
+    renderPagesAs,
     resolveChildAt,
     resolveLayerBox,
 } from './render'
