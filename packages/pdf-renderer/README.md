@@ -43,3 +43,21 @@ pnpm --filter @hankchen/canvas-pdf-renderer test   # poppler 四件套在场时�
 ```
 
 CJK 文本腿需系统单体 TTF（macOS 自带 `Arial Unicode.ttf`；CI 装 `fonts-ipafont-gothic`），可用 `JS_CANVAS_TEST_CJK_FONT` 指定；poppler 路径可用 `PDF_RENDERER_POPPLER_DIR` 覆写。
+
+## 平台支持面
+
+- **macOS / Linux 明确支持**（CI 双平台矩阵验证；pdfkit 纯 JS 底座，无 native
+  依赖；poppler 结构断言腿跑 ubuntu，macOS 缺 poppler 自动 skip）。
+- **Windows 不承诺**：本仓不在 CI 验证 win32；依赖本身无 native 编译负担，但
+  未验证面按「不承诺」处理。
+
+## 目验样张
+
+```sh
+pnpm visualcheck   # 仓根一键两包；或本包内 node scripts/visualcheck.mjs [输出基名]
+```
+
+多页综合样张输出 `visualcheck-output/`（.pdf + pdftoppm 在场时的逐页 .png 预览，
+gitignore）。CJK 字体探针纪律：候选只认单体 TTF、以渲染端同一管线试渲染判「存在
+且可加载」，全缺降级 Helvetica 只排 ASCII（stderr 响亮提示）；`JS_CANVAS_VISUAL_FONT`
+可指定。底座升级必须先过样张目验门禁（AGENTS.md「版本升级样张门禁」条款）。

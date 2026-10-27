@@ -30,7 +30,8 @@
     "scripts": {
         "build": "tsup",
         "test": "pnpm --filter @hankchen/canvas build && vitest run",
-        "typecheck": "pnpm --filter @hankchen/canvas build && tsc --noEmit -p tsconfig.json"
+        "typecheck": "pnpm --filter @hankchen/canvas build && tsc --noEmit -p tsconfig.json",
+        "visualcheck": "node scripts/visualcheck.mjs"
     },
     "dependencies": {
         "@hankchen/canvas": "workspace:*",
