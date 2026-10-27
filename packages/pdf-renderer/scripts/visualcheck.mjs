@@ -38,10 +38,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { deflateSync, inflateSync } from 'node:zlib'
+import { deflateSync } from 'node:zlib'
 
 import { decodeGraph, renderAs } from '@hankchen/canvas'
-import { createDefaultResolver, PdfRenderer, QrCodeMaterializer, renderPagesAsPdf } from '@hankchen/canvas-pdf-renderer'
+import { createDefaultResolver, PdfRenderer, renderPagesAsPdf } from '@hankchen/canvas-pdf-renderer'
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -292,147 +292,26 @@ function buildPage2(font) {
 }
 
 /**
- * 不透明化 QR 物化器（样张脚本侧 workaround，工票 12 报告记档的 src 级问题）：
+ * 不透明化 QR 物化器（评审 P2-7 前的脚本级 workaround，工票 12 报告记档）：
  * `qrcode` 包产物恒为 colorType 6（RGBA，alpha 全 255）——pdfkit 对带 alpha 通道的
- * PNG 走 splitAlphaChannel() 的回调式异步解码，doc.end() 不等它，产物 PDF 截断
- * （无 xref/trailer、poppler 不可读、无任何报错）。src 契约不动，这里把 QR PNG
- * 拍平成 RGB（8 位、无 alpha、filter 0）后再交默认物化链，样张 QR 腿产出可读 PDF。
- * 修复应落在 pdf-renderer src（如 embed 前统一拍平/换同步路径），评审后另票处理。
+ * PNG 走 splitAlphaChannel() 的回调式异步解码，doc.end() 不等它，产物 PDF 截断。
+ * **src 级修复已落**（评审 P0-1：embed 前同步拍平，src/png.ts），脚本级绕行整体
+ * 摘除，QR 物化走默认链即可产出完整 PDF。
  */
-function opaqueQrResolver() {
-    const inner = new QrCodeMaterializer()
+function visualResolver() {
     return createDefaultResolver({
-        qrMaterializer: {
-            async materialize(text, width) {
-                return flattenPngToOpaqueRgb(await inner.materialize(text, width))
-            },
-        },
-        // 缓存根指独立临时目录：样张渲染不做跨跑缓存复用——磁盘缓存若命中历史
-        // RGBA 字节会绕过上面的拍平物化器（原样喂给 pdfkit 仍截断）；独立根同时
-        // 让样张不读不写系统缓存（hermetic，重跑恒等）
+        // 缓存根指独立临时目录：样张渲染不读不写系统缓存（hermetic，重跑恒等）
         cacheRoot: fs.mkdtempSync(path.join(os.tmpdir(), 'js-canvas-visualcheck-cache-')),
     })
 }
 
-/** PNG 拍平：8 位 RGBA（colorType 6、非隔行）→ 8 位 RGB（colorType 2、filter 0）。
- *  zlib inflate 全量解压 → 逐行按 filter 还原 → 丢 alpha → filter 0 重行 → deflate。
- *  只服务 QR 物化字节（qrcode/pngjs 恒此格式），不追求通用 PNG 解码 */
-function flattenPngToOpaqueRgb(png) {
-    const view = new DataView(png.buffer, png.byteOffset, png.byteLength)
-    // 遍历 chunk 收集 IHDR 与 IDAT（PNG 结构：len(4)+type(4)+data+crc(4)）
-    let width = 0
-    let height = 0
-    const idat = []
-    let offset = 8
-    while (offset < png.length) {
-        const length = view.getUint32(offset)
-        const type = String.fromCharCode(png[offset + 4], png[offset + 5], png[offset + 6], png[offset + 7])
-        const dataStart = offset + 8
-        if (type === 'IHDR') {
-            width = view.getUint32(dataStart)
-            height = view.getUint32(dataStart + 4)
-            if (png[dataStart + 8] !== 8 || png[dataStart + 9] !== 6) {
-                throw new Error(`QR PNG 形态非 8 位 RGBA（bit=${png[dataStart + 8]}, color=${png[dataStart + 9]}），拍平器只处理该格式`)
-            }
-            if (png[dataStart + 12] !== 0) throw new Error('QR PNG 为隔行编码，拍平器不支持')
-        } else if (type === 'IDAT') {
-            idat.push(png.subarray(dataStart, dataStart + length))
-        } else if (type === 'IEND') {
-            break
-        }
-        offset = dataStart + length + 4
-    }
-    const total = idat.reduce((sum, part) => sum + part.length, 0)
-    const compressed = new Uint8Array(total)
-    let cursor = 0
-    for (const part of idat) {
-        compressed.set(part, cursor)
-        cursor += part.length
-    }
-    const raw = inflateSync(compressed)
-    const stride = width * 4
-    // 逐行反滤波（PNG filter 0-4；前三行边界按零行处理）
-    const pixels = new Uint8Array(height * stride)
-    const bpp = 4
-    for (let y = 0; y < height; y += 1) {
-        const filter = raw[y * (stride + 1)]
-        const srcRow = y * (stride + 1) + 1
-        const outRow = y * stride
-        for (let x = 0; x < stride; x += 1) {
-            const rawByte = raw[srcRow + x]
-            const left = x >= bpp ? pixels[outRow + x - bpp] : 0
-            const up = y > 0 ? pixels[outRow - stride + x] : 0
-            const upLeft = y > 0 && x >= bpp ? pixels[outRow - stride + x - bpp] : 0
-            let value
-            switch (filter) {
-                case 0: value = rawByte; break
-                case 1: value = rawByte + left; break
-                case 2: value = rawByte + up; break
-                case 3: value = rawByte + ((left + up) >> 1); break
-                case 4: {
-                    const p = left + up - upLeft
-                    const pa = Math.abs(p - left)
-                    const pb = Math.abs(p - up)
-                    const pc = Math.abs(p - upLeft)
-                    value = rawByte + (pa <= pb && pa <= pc ? left : pb <= pc ? up : upLeft)
-                    break
-                }
-                default: throw new Error(`QR PNG 未知 filter 类型 ${filter}`)
-            }
-            pixels[outRow + x] = value & 0xff
-        }
-    }
-    // 丢 alpha 重行（filter 0）→ deflate → 重新封装 PNG（CRC 只覆盖 type+data）
-    const outStride = width * 3
-    const rawOut = new Uint8Array(height * (outStride + 1))
-    for (let y = 0; y < height; y += 1) {
-        rawOut[y * (outStride + 1)] = 0
-        for (let x = 0; x < width; x += 1) {
-            const src = y * stride + x * 4
-            const dst = y * (outStride + 1) + 1 + x * 3
-            rawOut[dst] = pixels[src]
-            rawOut[dst + 1] = pixels[src + 1]
-            rawOut[dst + 2] = pixels[src + 2]
-        }
-    }
-    return encodeRgbPng(width, height, rawOut)
-}
+/** PNG 拍平小件已随 src 级修复（评审 P0-1，src/png.ts）上收——脚本不再持有副本 */
 
-/** 8 位 RGB、filter 0 的最小 PNG 封装（chunk/CRC 同式复制自 twoBandPng 的同款小件） */
-function encodeRgbPng(width, height, rawOut) {
-    const crcTable = (() => {
-        const table = new Array(256)
-        for (let n = 0; n < 256; n += 1) {
-            let c = n
-            for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
-            table[n] = c >>> 0
-        }
-        return table
-    })()
-    const crc32 = (buf) => {
-        let crc = 0xffffffff
-        for (const byte of buf) crc = (crc >>> 8) ^ crcTable[(crc ^ byte) & 0xff]
-        return (crc ^ 0xffffffff) >>> 0
-    }
-    const chunk = (type, data) => {
-        const len = Buffer.alloc(4)
-        len.writeUInt32BE(data.length)
-        const body = Buffer.concat([Buffer.from(type, 'latin1'), data])
-        const crc = Buffer.alloc(4)
-        crc.writeUInt32BE(crc32(body))
-        return Buffer.concat([len, body, crc])
-    }
-    const ihdr = Buffer.alloc(13)
-    ihdr.writeUInt32BE(width, 0)
-    ihdr.writeUInt32BE(height, 4)
-    ihdr[8] = 8
-    ihdr[9] = 2 // RGB
-    const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
-    return new Uint8Array(Buffer.concat([signature, chunk('IHDR', ihdr), chunk('IDAT', deflateSync(rawOut)), chunk('IEND', Buffer.alloc(0))]))
-}
-
-/** pdftoppm 可执行文件定位：PDF_RENDERER_POPPLER_DIR 优先，其余扫 PATH（go
- *  exec.LookPath 同义）；缺席返回 null（跳过预览只出 PDF，不报错） */function lookPdftoppm() {
+/**
+ * pdftoppm 可执行文件定位：PDF_RENDERER_POPPLER_DIR 优先，其余扫 PATH（go
+ * exec.LookPath 同义）；缺席返回 null（跳过预览只出 PDF，不报错）
+ */
+function lookPdftoppm() {
     const dirs = []
     if (process.env.PDF_RENDERER_POPPLER_DIR) dirs.push(process.env.PDF_RENDERER_POPPLER_DIR)
     if (process.env.PATH) dirs.push(...process.env.PATH.split(path.delimiter))
@@ -460,9 +339,9 @@ async function main() {
     fs.writeFileSync(stripPath, twoBandPng())
 
     const pages = [buildPage1(font, stripPath), buildPage2(font)].map((wire) => decodeGraph(wire))
-    // 便捷入口一条龙：物化（QR 经不透明化物化器，绕 pdfkit alpha-PNG 异步嵌断，
-    // 见 opaqueQrResolver 注）→ 核心多页编排 → 单 PDF 文档字节
-    const pdf = await renderPagesAsPdf(pages, { resolver: opaqueQrResolver() })
+    // 便捷入口一条龙：物化（QR 恒 RGBA 产物，embed 前拍平已在 src 落地——评审 P0-1，
+    // 见 visualResolver 注）→ 核心多页编排 → 单 PDF 文档字节
+    const pdf = await renderPagesAsPdf(pages, { resolver: visualResolver() })
     // 产物守门（对位 go 冒烟形态）：%PDF 头。注意原生 Uint8Array.prototype.toString
     // 不吃编码参数（join 语义），latin1 解码须过 Buffer（与 tests/backend.test.ts 同式）
     if (Buffer.from(pdf.subarray(0, 5)).toString('latin1') !== '%PDF-') {
