@@ -23,6 +23,11 @@ pnpm -r build
 ## Rules and gotchas
 
 - **零运行时依赖是硬红线**（对应 go-canvas ADR-0002）：引入任何 npm 运行时依赖前先停下来——文本度量/断行是纯函数契约，由宿主或渲染后端注入。
+- **包依赖红线四条款**（06 号决议定稿，node-renderers 工票）：
+  1. 核心包 `packages/canvas` 零运行时依赖（含上文硬红线）；
+  2. 渲染后端包（如 `canvas-image-renderer` / `canvas-pdf-renderer`）自带依赖——HTTP 客户端、QR 编码器等 npm 依赖进后端包，绝不进核心；
+  3. 后端包互不 import（包间不建依赖边，共享知识上移核心或按 4 复制）；
+  4. 共享小件同式复制并注明出处（对位 go-canvas color/exif/qr 四小件在两 module 复制的先例），不做共享小工具包。
 - **无 DOM lib**：tsconfig 不开 DOM，src 引 `document`/`window` 直接编译失败；需要 DOM 的包去 canvas-web 仓，未来 Node 渲染器也必须保持零 DOM。
 - **往返恒等**：`decodeGraph → encodeGraph` 输出与输入键级恒等；改 decode/encode 前先确认 wire 面是否与 PHP/Go 对齐——wire 改动需三端同步 + fixture 重导。
 - **发布**：`pnpm publish`（读 `publishConfig`，access public）；版本以 git tag 为准；仓库变多包后改用 per-package tag（如 `canvas/vX.Y.Z`）。
