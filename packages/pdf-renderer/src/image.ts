@@ -119,9 +119,10 @@ import { imageDimensions, sniffType } from './decode'
 import { exifOrientation } from './exif'
 
 /**
- * embedBlit 直嵌 blit 共享主体（drawImage/drawImageMasked 同源）：魔数嗅探 → 内在
- * 尺寸 → srcRect 源窗与放置矩阵 P 算定 → 内容寻址开图（去重）→ 调用臂给定的裁剪
- * 原语内发射放置矩阵与整幅图。源字节原样进文档（JPEG/PNG 直嵌零重编码），srcRect→
+ * embedBlit 直嵌 blit 共享主体（drawImage 单一消费口）：魔数嗅探 → 内在
+ * 尺寸 → srcRect 源窗与放置矩阵 P 算定 → 内容寻址开图（去重）→ 给定的裁剪
+ * 原语内发射放置矩阵与整幅图。源字节原样进文档（JPEG/PNG 直嵌零重编码；带
+ * alpha 的 PNG 经 openDeduped 前置拍平，见 src/png.ts），srcRect→
  * dstRect 的裁窗与拉伸、EXIF 归正全部经裁剪路径 + 放置矩阵在 PDF 图形态完成——像素
  * 不被搬动，与位图后端「解码 → 裁窗 → 转正 → 拉伸」像素管线语义等价。
  * 裁剪闭包在 transform 之前施加（双空间纪律：pdfkit 裁剪/变换入参恒其翻转用户空间，

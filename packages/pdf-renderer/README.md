@@ -7,7 +7,7 @@
 - **五原语**：`begin`（首次建档/续页）/ `end`（同步返回完整 PDF `Uint8Array`）/ `drawRect`（背景 + 四边内嵌边框带）/ `drawImage`（双矩形 blit：JPEG/PNG 直嵌零重编码、cover/contain/fill/tile 几何全在核心分派层）/ `drawText`（TTF 子集内嵌 Identity-H、Helvetica 核心字体兜底）。
 - **多页**：消费核心 `renderPages`/`renderPagesAs` 编排（n 页 n 次 `begin` + 单文档一次 `end`），逐页任意尺寸。
 - **EXIF 自管八向矩阵**：`doc.image(..., { ignoreOrientation: true })` 关库默认归正，适配层矩阵对位 go `orientAffine`，字节零重编码。
-- **形状能力口**（ADR 0026）：`drawEllipse` + `drawImageMasked`（内切椭圆掩码 blit），`clip=circle` 走圆形三步。
+- **形状能力口不实现**（spec Out of Scope）：`drawEllipse`/`drawImageMasked`（ADR 0026）有意缺席——两 node 后端行为对称，`clip=circle` 声明经核心可选成员契约矩形降级。
 - **资源物化**：`createDefaultResolver` 默认实现——HTTP 下载（可注入 fetch/Downloader）+ 内容寻址磁盘缓存 + QR 物化（`qrcode` 纠错 H/margin 0，`qr:` 前缀同键登记）+ 远程字体登记。
 - **查询口**：`imageIntrinsicSize`（PNG IHDR / JPEG SOF，raw 空间口径）供核心全 fit 前置。
 

@@ -374,20 +374,14 @@ describe('隔行 PNG 响亮报错（评审 P0-1 防御面：pdfkit 异步臂的�
     })
 })
 
-maybePoppler('形状能力口（ADR 0026：drawEllipse + drawImageMasked，clip=circle 走圆形三步）', () => {
-    it('clip=circle：背景填进内切圆、掩码 blit、圆周描边环（方形图 cover 进圆不越界）', () => {
-        const src = writeTemp('circle.png', twoColorPng(40, 40, RED, BLUE, 20))
-        const canvas = imagePage({ width: 20, height: 20, src, fit: 'cover', clip: 'circle', background: '#ffffff' })
-        const backend = new PdfRenderer()
-        expect(typeof backend.drawEllipse).toBe('function')
-        expect(typeof backend.drawImageMasked).toBe('function')
-        const pdf = renderPdf(canvas, backend)
-        const img = rasterizePage(pdf, 1, 20, 20)
-        // 圆内左右分色；圆外（盒角）透明露底——pdftoppm 无透明栅格化为白，此处页底白
-        expectPixelNear(img, 4, 10, RED, 24)
-        expectPixelNear(img, 15, 10, BLUE, 24)
-        expectPixel(img, 0, 0, WHITE)
-        expectPixel(img, 19, 0, WHITE)
+maybePoppler('clip=circle 形状口缺省（评审 P0-4：spec Out of Scope，核心可选成员契约的矩形降级）', () => {
+    it('形状口未实现 → clip=circle 声明走核心矩形降级：角部落墨（若重引椭圆口此测试即红）', () => {
+        const src = writeTemp('circle.png', twoColorPng(20, 20, RED, BLUE, 10))
+        const canvas = imagePage({ width: 20, height: 20, src, fit: 'fill', clip: 'circle' })
+        const img = rasterizePage(renderPdf(canvas, new PdfRenderer()), 1, 20, 20)
+        // 矩形降级：盒角照常落墨（椭圆掩码下应为白/透明）
+        expectPixel(img, 1, 1, RED)
+        expectPixel(img, 18, 1, BLUE)
     })
 
     it('非形状语义不受影响：clip 缺省矩形路径照旧', () => {

@@ -1,8 +1,10 @@
 /**
  * 后端会话（对位 go pdf-renderer/backend.go Renderer）：以 pdfkit 新建单文档为渲染面，
- * 实现核心包五个绘制原语接入渲染模板；可选形状能力口（drawEllipse + drawImageMasked，
- * ADR 0026，掩码 blit 走矢量裁剪、椭圆走原生 ellipse——两成员齐备才算形状能力后端），
- * End 产物为 PDF 文档字节 Uint8Array（经核心 renderAs/renderPagesAs 消费）。
+ * 实现核心包五个绘制原语接入渲染模板，End 产物为 PDF 文档字节 Uint8Array（经核心
+ * renderAs/renderPagesAs 消费）。可选形状能力口（drawEllipse + drawImageMasked，
+ * ADR 0026）**有意不实现**（评审 P0-4，spec Out of Scope L99 明列「形状能力口对位」
+ * 且 image 包未实现该口——保留会造成两 node 后端 clip=circle 行为分歧）：核心契约的
+ * 可选成员缺席即 clip=circle 矩形降级，正是契约缺省形态。
  *
  * 单位契约：核心接口坐标恒抽象像素，px→pt 换算责任全在后端（96dpi 口径，
  * pt = px × 0.75，PX_TO_PT 全局唯一换算点）——页 MediaBox、原语坐标、字号一律 ×0.75；
@@ -17,7 +19,7 @@ import { readFileSync } from 'node:fs'
 
 import PDFDocument from 'pdfkit'
 
-import type { Border, RenderBackend, ShapeCapableBackend, TextDrawOptions, BlitRect, BorderSide } from '@hankchen/canvas'
+import type { Border, RenderBackend, TextDrawOptions, BlitRect, BorderSide } from '@hankchen/canvas'
 
 import { parseColor, type Rgba } from './color'
 import { imageDimensions } from './decode'
@@ -35,7 +37,7 @@ const QR_KEY_PREFIX = 'qr:'
  * 即终结会话（doc 与字体/内嵌图注册表一并复位），同一实例再次渲染必然得到干净新文档，
  * 不会把页面追加进旧文档（对位 go 工票 03 验收语义）。**非并发安全**：并发渲染请各自 new
  */
-export class PdfRenderer implements RenderBackend, ShapeCapableBackend {
+export class PdfRenderer implements RenderBackend {
     /** doc begin 建立的 PDF 文档（会话内单文档连续性，多页逐页 addPage） */
     private doc: PDFKit.PDFDocument | null = null
     /** 渲染面高（px，placeMatrix 的页高 pt 换算基准） */
@@ -170,55 +172,6 @@ export class PdfRenderer implements RenderBackend, ShapeCapableBackend {
                 return // qr: 未物化占位语义
             }
             embedBlit(doc, data, srcRect, dstRect, this.pageHeightPx, (d) => clipRectPath(d, dstRect), (bytes) => this.openDeduped(bytes))
-        })
-    }
-
-    /**
-     * drawImageMasked 掩码 blit 原语（ADR 0026，形状能力口）：双矩形 blit 语义与
-     * drawImage 完全一致（含零宽高整图哨兵）后，以 maskRect 外接矩形的内切椭圆为掩码
-     * 裁切。掩码矩形是画布绝对坐标、与目标矩形独立，裁剪路径在未入放置矩阵的用户空间
-     * 施加（双空间纪律与 go 同门）。dstRect/maskRect 空矩形防护不画
-     */
-    drawImageMasked(src: string, srcRect: BlitRect, dstRect: BlitRect, maskRect: BlitRect): void {
-        this.tryBegin((doc) => {
-            if (dstRect.width <= 0 || dstRect.height <= 0 || maskRect.width <= 0 || maskRect.height <= 0) {
-                return // dstRect/maskRect 空矩形防护不画；未建面检查在前，对位 go docf 次序
-            }
-            const data = this.lookupImageBytes(src)
-            if (data === null) {
-                return
-            }
-            embedBlit(doc, data, srcRect, dstRect, this.pageHeightPx, (d) => clipEllipsePath(d, maskRect), (bytes) => this.openDeduped(bytes))
-        })
-    }
-
-    /**
-     * drawEllipse 椭圆原语（ADR 0026，形状能力口）：fillColor 填充 + stroke 描边一体。
-     * 描边为驱动原生缘上居中带 [r−w/2, r+w/2]（pdfkit stroke 即缘上居中，与 go fpdf
-     * Ellipse 同口径）；颜色先解析后挂载，错误路径不残留文档状态；半透明色经
-     * ExtGState（fillOpacity/strokeOpacity）挂载画完恢复
-     */
-    drawEllipse(x: number, y: number, width: number, height: number, fillColor: string | null, stroke: BorderSide | null): void {
-        if (width <= 0 || height <= 0) {
-            return // 内切边长 ≤0 零几何零绘制（渲染臂同款防护）
-        }
-        this.tryBegin((doc) => {
-            const cx = (x + width / 2) * PX_TO_PT
-            const cy = (y + height / 2) * PX_TO_PT
-            const rx = (width / 2) * PX_TO_PT
-            const ry = (height / 2) * PX_TO_PT
-            if (fillColor !== null && fillColor !== '') {
-                const c = parseColor(fillColor)
-                doc.fillOpacity(c.a / 255).fillColor(rgbHex(c))
-                doc.ellipse(cx, cy, rx, ry).fill()
-                doc.fillOpacity(1) // 画完恢复，后续元素不吃残留 alpha
-            }
-            if (stroke !== null && stroke.width > 0) {
-                const c = parseColor(stroke.color)
-                doc.strokeOpacity(c.a / 255).strokeColor(rgbHex(c)).lineWidth(stroke.width * PX_TO_PT)
-                doc.ellipse(cx, cy, rx, ry).stroke()
-                doc.strokeOpacity(1)
-            }
         })
     }
 
@@ -408,13 +361,4 @@ export function borderBands(x: number, y: number, width: number, height: number,
 /** clipRectPath dstRect 裁剪路径（像素坐标 ×0.75 入 pdfkit 翻转用户空间；在 transform 之前施加） */
 function clipRectPath(doc: PDFKit.PDFDocument, dstRect: BlitRect): void {
     doc.rect(dstRect.x * PX_TO_PT, dstRect.y * PX_TO_PT, dstRect.width * PX_TO_PT, dstRect.height * PX_TO_PT).clip()
-}
-
-/** clipEllipsePath maskRect 内切椭圆裁剪路径（inscribedEllipse 同一几何落点，ADR 0026） */
-function clipEllipsePath(doc: PDFKit.PDFDocument, maskRect: BlitRect): void {
-    const cx = (maskRect.x + maskRect.width / 2) * PX_TO_PT
-    const cy = (maskRect.y + maskRect.height / 2) * PX_TO_PT
-    const rx = (maskRect.width / 2) * PX_TO_PT
-    const ry = (maskRect.height / 2) * PX_TO_PT
-    doc.ellipse(cx, cy, rx, ry).clip()
 }
