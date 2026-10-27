@@ -72,3 +72,14 @@ export {
     heuristicMeasurerFactory,
     splitGraphemes,
 } from './text'
+export {
+    type Downloader,
+    type FetchLike,
+    type FetchResponseLike,
+    type ImageRegisteringBackend,
+    type QRMaterializer,
+    RESOURCE_ERROR_CODES,
+    type ResourceErrorCode,
+    ResourceMaterializeError,
+    type ResourceResolver,
+} from './resolver'
