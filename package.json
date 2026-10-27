@@ -10,7 +10,8 @@
     "scripts": {
         "test": "pnpm -r test",
         "typecheck": "pnpm -r typecheck",
-        "build": "pnpm -r build"
+        "build": "pnpm -r build",
+        "visualcheck": "pnpm -r visualcheck"
     },
     "devDependencies": {
         "typescript": "~5.9.3"

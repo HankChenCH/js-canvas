@@ -6,7 +6,8 @@ graph 契约的 JS 端核心仓 `js-canvas`：**无 DOM 世界**——当前唯�
 
 ## Layout
 
-- `packages/canvas/` — 唯一包。src 平铺 9 文件：`wire.ts`（宽松 wire 类型）/ `types.ts`（严格领域类型）/ `decode.ts` + `encode.ts`（宽进严出边界，graph → 解码 → 编码往返恒等是硬契约）/ `layout.ts` / `render.ts`（五原语渲染契约 + 可选度量能力口，ADR 0023）/ `text.ts` / `preview.ts` / `index.ts`（单 barrel + `PACKAGE_NAME`）。
+- `packages/canvas/` — 核心契约包。src 平铺 9 文件：`wire.ts`（宽松 wire 类型）/ `types.ts`（严格领域类型）/ `decode.ts` + `encode.ts`（宽进严出边界，graph → 解码 → 编码往返恒等是硬契约）/ `layout.ts` / `render.ts`（五原语渲染契约 + 可选度量能力口，ADR 0023）/ `text.ts` / `preview.ts` / `index.ts`（单 barrel + `PACKAGE_NAME`）。
+- `packages/image-renderer/`、`packages/pdf-renderer/` — Node 渲染后端（graph → PNG / 页序列 → PDF），各自带 `scripts/visualcheck.mjs` 目验样张脚本（`pnpm visualcheck` 一键两包）。
 - 构建产物：tsup（ESM + dts）→ `dist/`，exports 指向 dist；workspace 内 typecheck/test 直对 src（`tsc --noEmit` / vitest），不受构建影响。
 - `tests/fixtures/layout-snapshot.json` — PHP 导出的布局快照，再生成用 php-canvas-next 仓 `scripts/export-layout-snapshot.php`（PHP 8.3 + ext-intl），人审 diff 后提交。
 
@@ -15,9 +16,10 @@ graph 契约的 JS 端核心仓 `js-canvas`：**无 DOM 世界**——当前唯�
 ```sh
 export PATH="$(brew --prefix)/opt/node@22/bin:$PATH"   # Node 22 + pnpm 10（keg-only，不导出会用系统 node）
 pnpm install
+pnpm -r build        # 先 build：后端包 typecheck/test 依赖核心 dist
 pnpm -r typecheck
 pnpm -r test
-pnpm -r build
+pnpm visualcheck     # 两后端目验样张一键出图（产物 gitignore，人审）
 ```
 
 ## Rules and gotchas
@@ -30,5 +32,6 @@ pnpm -r build
   4. 共享小件同式复制并注明出处（对位 go-canvas color/exif/qr 四小件在两 module 复制的先例），不做共享小工具包。
 - **无 DOM lib**：tsconfig 不开 DOM，src 引 `document`/`window` 直接编译失败；需要 DOM 的包去 canvas-web 仓，未来 Node 渲染器也必须保持零 DOM。
 - **往返恒等**：`decodeGraph → encodeGraph` 输出与输入键级恒等；改 decode/encode 前先确认 wire 面是否与 PHP/Go 对齐——wire 改动需三端同步 + fixture 重导。
+- **底座升级必须过目验样张门禁**（工票 12 成文，04/05 号决议的纪律）：`@napi-rs/canvas` 与 `pdfkit` 都精确钉版本——native 库/pdfkit 行为即渲染契约，任何一方版本升级必须先 `pnpm visualcheck` 出两后端样张人工目验通过（九条验收线逐条在位），再合入；只过单测不过样张不算通过（对位 go-canvas「升级必须过 make visual-check」同款纪律）。
 - **发布**：`pnpm publish`（读 `publishConfig`，access public）；版本以 git tag 为准；仓库变多包后改用 per-package tag（如 `canvas/vX.Y.Z`）。
 - `.npmrc` 不配镜像（CI 走 npmjs；本机安装按次指定 npmmirror）。
