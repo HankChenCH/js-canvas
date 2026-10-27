@@ -26,16 +26,13 @@ import { tmpdir } from 'node:os'
 
 import { createHeuristicMeasurer, type TextMeasurer, type TextMeasurerFactory } from '@hankchen/canvas'
 
+import { isNumeric } from './url'
+
 /** 内置默认字体判定：空串/纯数字字体 id（对位 go typography.IsBuiltinFont）。
- * 纯数字近似 go strconv.ParseFloat：JS Number() 对 Inf/NaN 字面量的超集差异
- * 无观察差异（这类值必然非 URL、非真实字体，两分支同为默认字体/跳过）。
- * 度量与绘制共用本判定（对位 go measurer.go docblock） */
+ * 空串与纯数字同归默认字面——判定与 resolver 跳过字体物化共用 isNumeric 同一口径
+ * （src/url.ts，防漂移）。度量与绘制共用本判定（对位 go measurer.go docblock） */
 export function isBuiltinFont(font: string): boolean {
-    if (font === '') {
-        return true
-    }
-    const n = Number(font)
-    return Number.isNaN(n) === false && Number.isFinite(n) === true
+    return font === '' || isNumeric(font)
 }
 
 /** TTC/OTC 集合魔数（fail-fast 拒收面；go image 取首 face 的有意收紧见文件头） */
@@ -78,11 +75,11 @@ function loadFontFamilyByPath(path: string, ref: string): string {
     } catch (error) {
         throw new Error(`读取字体 ${ref}: ${(error as Error).message}`)
     }
-    return registerFontBytes(data, path, ref)
+    return registerFontBytes(data, ref)
 }
 
 /** 按字节装配字体（远程字体物化缝）：TTC 嗅探 → 落盘 → registerFromPath */
-function registerFontBytes(data: Uint8Array, sourcePath: string, ref: string): string {
+function registerFontBytes(data: Uint8Array, ref: string): string {
     assertNotTtc(data, ref)
     const alias = fontAlias(data)
     if (GlobalFonts.has(alias)) {
@@ -102,7 +99,6 @@ function registerFontBytes(data: Uint8Array, sourcePath: string, ref: string): s
         throw new Error(`解析字体 ${ref}: 注册后未命中别名（非 sfnt 字体文件?）`)
     }
     registeredFonts.set(ref, alias)
-    void sourcePath
     return alias
 }
 
@@ -112,7 +108,7 @@ function registerFontBytes(data: Uint8Array, sourcePath: string, ref: string): s
  * 不带病启动）；幂等（同字节同别名）
  */
 export function registerFontData(ref: string, data: Uint8Array): void {
-    registerFontBytes(data, `bytes:${ref}`, ref)
+    registerFontBytes(data, ref)
 }
 
 /**

@@ -35,7 +35,8 @@ import {
     type ResourceResolver,
 } from '@hankchen/canvas'
 
-import { QRCodeMaterializer } from './qr'
+import { QrCodeMaterializer } from './qr'
+import { isNumeric, isRemoteURL } from './url'
 
 /** 本包后端渲染缝的最小结构面：核心登记缝 + 字体登记 + 预热（均后端自决实现） */
 export interface MaterializationBackend extends ImageRegisteringBackend {
@@ -50,7 +51,7 @@ export interface DefaultResolverOptions {
     fetchLike?: FetchLike
     /** 落盘缓存根目录；缺省仅内存缓存。子目录 img_layers/text_layers/qr_layers（go 同名） */
     cacheRoot?: string
-    /** QR 物化缝；缺省接 QRCodeMaterializer（前置注入），显式 null = 不接线（遇
+    /** QR 物化缝；缺省接 QrCodeMaterializer（前置注入），显式 null = 不接线（遇
      * 二维码图层报 qr_materializer_required），传自定义实现则覆写默认 */
     qrMaterializer?: QRMaterializer | null
 }
@@ -68,7 +69,7 @@ const SUB_QR = 'qr_layers'
  */
 export function createDefaultResolver(options: DefaultResolverOptions = {}): ResourceResolver {
     const fetchLike = options.fetchLike ?? ((url: string) => globalThis.fetch(url))
-    const qr = options.qrMaterializer === undefined ? new QRCodeMaterializer() : options.qrMaterializer
+    const qr = options.qrMaterializer === undefined ? new QrCodeMaterializer() : options.qrMaterializer
     const memory = new Map<string, Uint8Array>()
     const cacheRoot = options.cacheRoot
 
@@ -278,26 +279,4 @@ function cacheKey(rawUrl: string): string {
 /** 二维码缓存键 = sha256(内容_宽度) 十六进制 + ".png"（同式复制自 go qrCacheKey） */
 function qrCacheKey(text: string, width: number): string {
     return createHash('sha256').update(`${text}_${width}`).digest('hex') + '.png'
-}
-
-/**
- * 是否远程 URL：凡可解析出协议与主机即视为远程（对位 go isRemoteURL / PHP
- * FILTER_VALIDATE_URL 语义），其余一律按本地路径直接使用
- */
-function isRemoteURL(s: string): boolean {
-    try {
-        const url = new URL(s)
-        return url.protocol !== '' && url.host !== ''
-    } catch {
-        return false
-    }
-}
-
-/**
- * 纯数字判定（对位 go resolver.IsNumeric / strconv.ParseFloat 近似 PHP
- * is_numeric）：「Resolver 跳过字体物化」与「渲染后端回退默认字体」的同一口径
- * （见 typography.ts isBuiltinFont）
- */
-function isNumeric(s: string): boolean {
-    return !Number.isNaN(Number(s)) && Number.isFinite(Number(s))
 }

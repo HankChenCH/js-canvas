@@ -5,16 +5,16 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { QRCodeMaterializer } from '../src/qr'
+import { QrCodeMaterializer } from '../src/qr'
 import { decodePixels, expectPixelNear } from './helpers'
 
 const SAMPLE_TEXT = 'https://example.com/go-canvas'
 
 async function materializeSample(width: number, text = SAMPLE_TEXT): Promise<Uint8Array> {
-    return new QRCodeMaterializer().materialize(text, width)
+    return new QrCodeMaterializer().materialize(text, width)
 }
 
-describe('QRCodeMaterializer（对位 go qr.go QRMaterializer）', () => {
+describe('QrCodeMaterializer（对位 go qr.go QRMaterializer）', () => {
     it('产物 PNG 魔数 + 可解码为位图（工票验收面）', async () => {
         const data = await materializeSample(200)
         expect(Array.from(data.subarray(0, 4))).toEqual([0x89, 0x50, 0x4e, 0x47])

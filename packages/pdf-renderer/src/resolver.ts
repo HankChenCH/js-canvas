@@ -23,6 +23,7 @@ import {
     ResourceMaterializeError,
     type Canvas,
     type Downloader,
+    type FetchLike,
     type ImageRegisteringBackend,
     type QRMaterializer,
     type ResourceResolver,
@@ -42,7 +43,9 @@ export interface FontRegisteringBackend {
 /** 组装选项：注入自定义下载器/fetch（代理、鉴权、测试桩）、缓存根与 QR 物化器 */
 export interface ResolverOptions {
     downloader?: Downloader
-    fetch?: (url: string) => Promise<{ ok: boolean; status: number; arrayBuffer(): Promise<ArrayBuffer> }>
+    /** fetch 注入缝：核心 FetchLike 最小结构面（ok/status/arrayBuffer 三成员，
+     * 评审 P1-6 与核心导出类型收敛，消除内联结构面漂移面） */
+    fetch?: FetchLike
     cacheRoot?: string
     qrMaterializer?: QRMaterializer
 }
@@ -247,7 +250,7 @@ function readFileIfExists(p: string): Uint8Array | null {
 
 /** createFetchDownloader 默认 HTTP 下载器：Node ≥18 全局 fetch；非 2xx/空体失败
  * （对位 go HTTPDownloader 的失败面；取消信号 v1 不做，06 号决议 E1 记雾区） */
-export function createFetchDownloader(fetchFn: (url: string) => Promise<{ ok: boolean; status: number; arrayBuffer(): Promise<ArrayBuffer> }>): Downloader {
+export function createFetchDownloader(fetchFn: FetchLike): Downloader {
     return {
         async download(rawUrl: string): Promise<Uint8Array> {
             let response

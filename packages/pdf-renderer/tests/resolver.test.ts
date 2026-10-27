@@ -14,7 +14,7 @@ import {
 import { QrCodeMaterializer } from '../src/qr'
 import { createDefaultResolver, createRenderer } from '../src/resolver'
 import { makeTempDir } from './helpers'
-import QRCode from 'qrcode'
+import QRCode, { type QRCodeSegment } from 'qrcode'
 
 /**
  * QR 物化与默认资源解析器测试（对位 go qr_test.go / resolver 侧手法）：
@@ -53,7 +53,7 @@ describe('QrCodeMaterializer 固定选项（纠错 H、边距 0、正方形 PNG�
 describe('编码模式分派（评审 P0-2：与 image 包 pickEncMode 同口径，显式 segment 压制 auto 拆分）', () => {
     /** 与被测实现同参数的参照字节面（显式单 segment） */
     function referenceBuffer(text: string, mode: 'numeric' | 'alphanumeric' | 'byte', size: number): Promise<Buffer> {
-        const segment =
+        const segment: QRCodeSegment =
             mode === 'byte'
                 ? { data: Buffer.from(text, 'utf8'), mode: 'byte' }
                 : { data: text, mode }

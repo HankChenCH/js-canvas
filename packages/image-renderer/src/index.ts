@@ -12,7 +12,7 @@ export {
     type DefaultResolverOptions,
     type MaterializationBackend,
 } from './resolver'
-export { QRCodeMaterializer } from './qr'
+export { QrCodeMaterializer } from './qr'
 export { createNapiMeasurerFactory, isBuiltinFont, loadFontFamily, registerFontData } from './typography'
 export { drawTextLine } from './text'
 export { parseColor, cssColor, type NrgbaColor } from './color'

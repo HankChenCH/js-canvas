@@ -23,8 +23,10 @@ import QRCode, { type QRCodeSegment } from 'qrcode'
 import { Buffer } from 'node:buffer'
 import { ResourceMaterializeError, type QRMaterializer } from '@hankchen/canvas'
 
-/** 二维码物化默认实现（固定选项；核心 QRMaterializer 契约的实现） */
-export class QRCodeMaterializer implements QRMaterializer {
+/** 二维码物化默认实现（固定选项；核心 QRMaterializer 契约的实现）。命名 QrCode
+ * 对齐领域命名 QrCodeLayer 与 pdf 包同类（评审 P1-6 两包统一；核心接口名
+ * QRMaterializer 是 go 对位名，不动） */
+export class QrCodeMaterializer implements QRMaterializer {
     async materialize(text: string, width: number): Promise<Uint8Array> {
         const size = Math.max(width, 1) // 对齐 endroid size=max(图层宽,1)
         const segment = segmentFor(text, pickEncMode(text))
