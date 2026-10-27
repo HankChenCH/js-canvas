@@ -193,16 +193,16 @@ export class ImageRendererBackend implements RenderBackend {
      * null → 核心统一退化 fill 形态。
      * 两路在「raw 出参」契约上收敛（napi 同步/异步口径差异的实测收敛，见
      * decode.ts decodeHeaderSize docblock）：
-     * - preload 缓存命中：位图是 canonical（异步解码已转正），经 exifOrientation
-     *   ≥5 互换换回 raw；
+     * - preload 缓存命中：位图是 canonical（异步解码已转正），按 DecodedEntry
+     *   已存的 orientation ≥5 互换换回 raw（评审 P0-3：缓存臂不重读磁盘重算
+     *   orientation——字节不可得时兜底 1 会产出 canonical 错误空间尺寸；不产出
+     *   空间错误的尺寸，弃用既有已存数据更是错上加错）；
      * - 未装配 src：同步头部探测直出 raw 头尺寸（同步口不施加转正），原样返回
      */
     imageIntrinsicSize(src: string): { width: number; height: number } | null {
         const cached = this.decoded.get(src)
         if (cached !== undefined && cached !== null) {
-            const bytes = loadSourceBytes(src, this.registry)
-            const orientation = bytes === null ? 1 : exifOrientation(bytes)
-            return rawDimensions(cached.image.width, cached.image.height, orientation)
+            return rawDimensions(cached.image.width, cached.image.height, cached.orientation)
         }
         const bytes = loadSourceBytes(src, this.registry)
         if (bytes === null) {

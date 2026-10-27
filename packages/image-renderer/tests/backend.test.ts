@@ -5,6 +5,7 @@
  * 插值核明确不复刻（napi 平滑 vs go CatmullRom），取样点远离分界并放宽容差。
  */
 import { describe, expect, it } from 'vitest'
+import { unlinkSync } from 'node:fs'
 
 import {
     canvasJpeg,
@@ -307,6 +308,14 @@ describe('imageIntrinsicSize 查询面（raw 内在尺寸，混合口径查询�
         const path = twoBandExifJpegFile(tempFixtureDir(), 6)
         const backend = new ImageRendererBackend()
         await backend.preload(path)
+        expect(backend.imageIntrinsicSize!(path)).toEqual({ width: 8, height: 16 })
+    })
+
+    it('缓存命中臂直用已存 orientation（评审 P0-3）：字节不可得（夹具已删）不重读磁盘，仍返 raw 尺寸', async () => {
+        const path = twoBandExifJpegFile(tempFixtureDir(), 6)
+        const backend = new ImageRendererBackend()
+        await backend.preload(path)
+        unlinkSync(path) // 90° 族图字节不可得：兜底 orientation=1 会产出 canonical 错误空间
         expect(backend.imageIntrinsicSize!(path)).toEqual({ width: 8, height: 16 })
     })
 
