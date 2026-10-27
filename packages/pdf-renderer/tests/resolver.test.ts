@@ -14,6 +14,7 @@ import {
 import { QrCodeMaterializer } from '../src/qr'
 import { createDefaultResolver, createRenderer } from '../src/resolver'
 import { makeTempDir } from './helpers'
+import QRCode from 'qrcode'
 
 /**
  * QR 物化与默认资源解析器测试（对位 go qr_test.go / resolver 侧手法）：
@@ -46,6 +47,44 @@ describe('QrCodeMaterializer 固定选项（纠错 H、边距 0、正方形 PNG�
     it('生成失败报错（空内容），消息含内容上下文', async () => {
         const m = new QrCodeMaterializer()
         await expect(m.materialize('', 100)).rejects.toThrow(/生成二维码矩阵/)
+    })
+})
+
+describe('编码模式分派（评审 P0-2：与 image 包 pickEncMode 同口径，显式 segment 压制 auto 拆分）', () => {
+    /** 与被测实现同参数的参照字节面（显式单 segment） */
+    function referenceBuffer(text: string, mode: 'numeric' | 'alphanumeric' | 'byte', size: number): Promise<Buffer> {
+        const segment =
+            mode === 'byte'
+                ? { data: Buffer.from(text, 'utf8'), mode: 'byte' }
+                : { data: text, mode }
+        return QRCode.toBuffer([segment], {
+            errorCorrectionLevel: 'H',
+            margin: 0,
+            width: size,
+            color: { dark: '#000000ff', light: '#ffffffff' },
+            type: 'png',
+        })
+    }
+
+    it('混合内容（数字段+CJK）走整串单 byte 段：字节级等于显式 segment 参照、异于 auto 拆分（反例域）', async () => {
+        // auto 对该内容拆多段（数字段 Numeric），位面与整串 byte 段数百 bit 不同
+        const text = 'ORDER 2026-10-27 #8899 号单'
+        const got = await new QrCodeMaterializer().materialize(text, 240)
+        expect(Buffer.from(got).equals(await referenceBuffer(text, 'byte', 240))).toBe(true)
+        const auto = await QRCode.toBuffer(text, { errorCorrectionLevel: 'H', margin: 0, width: 240, type: 'png' })
+        expect(Buffer.from(got).equals(auto)).toBe(false)
+    })
+
+    it('纯数字走 Numeric 段；大写字母数字集走 Alphanumeric 段（字节级对照）', async () => {
+        const m = new QrCodeMaterializer()
+        expect(Buffer.from(await m.materialize('20261027088999', 160)).equals(await referenceBuffer('20261027088999', 'numeric', 160))).toBe(true)
+        expect(Buffer.from(await m.materialize('HTTPS://EXAMPLE.COM/JOIN', 160)).equals(await referenceBuffer('HTTPS://EXAMPLE.COM/JOIN', 'alphanumeric', 160))).toBe(true)
+    })
+
+    it('纯 CJK 内容走 byte 段：与 image 包同矩阵口径（字节级对照；无 Kanji 分支）', async () => {
+        const text = '证书批量生成：图层树'
+        const got = await new QrCodeMaterializer().materialize(text, 200)
+        expect(Buffer.from(got).equals(await referenceBuffer(text, 'byte', 200))).toBe(true)
     })
 })
 
