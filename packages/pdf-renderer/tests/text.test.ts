@@ -215,14 +215,18 @@ maybePoppler('TTF 子集内嵌与 pdffonts 断言（poppler 在场；CJK 字体�
     const cjkFont = probeCjkFont()
 
     it.skipIf(cjkFont === null)('pdftotext 提取 ASCII + CJK；pdffonts 三要素 CID TrueType + Identity-H + emb=yes（sub 位放宽，05 号决议）', () => {
+        // 文本须取自探针字体的并集：CI CJK 字体 ipag/ipaexg 是 JIS 日文字体，简体
+        // 专用字（证书）不在字面、fontkit 编码为 .notdef——PDF 缺字形出 .notdef 是
+        // 通用字体语义而非产品缺陷；用 JIS 收录的「証書」（ipag/ipaexg/Arial
+        // Unicode 三候选全有）保证提取断言在所有探针命中面成立
         const font = cjkFont!
         const pdf = renderPdf(
-            textPage({ width: 200, height: 40, text: 'js-canvas 证书 PDF', font, fontSize: 20, hAlign: 'left', vAlign: 'top' }),
+            textPage({ width: 200, height: 40, text: 'js-canvas 証書 PDF', font, fontSize: 20, hAlign: 'left', vAlign: 'top' }),
             new PdfRenderer(),
         )
         const text = pageText(pdf, 1)
         expect(text).toContain('js-canvas')
-        expect(text).toContain('证书')
+        expect(text).toContain('証書')
 
         const fonts = pdfFonts(pdf)
         const subsetLine = fonts.split('\n').find((line) => line.includes('CID TrueType') && line.includes('Identity-H'))
