@@ -1,0 +1,49 @@
+{
+    "name": "@hankchen/canvas-pdf-renderer",
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "PDF 渲染后端：pdfkit 底座实现核心五原语渲染契约，画布页序列 → PDF 文档字节（Node 世界，零 DOM）",
+    "type": "module",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js",
+            "default": "./dist/index.js"
+        },
+        "./package.json": "./package.json"
+    },
+    "files": [
+        "dist",
+        "README.md",
+        "LICENSE"
+    ],
+    "sideEffects": false,
+    "publishConfig": {
+        "access": "public",
+        "registry": "https://registry.npmjs.org/"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/HankChenCH/js-canvas.git",
+        "directory": "packages/pdf-renderer"
+    },
+    "scripts": {
+        "build": "tsup",
+        "test": "pnpm --filter @hankchen/canvas build && vitest run",
+        "typecheck": "pnpm --filter @hankchen/canvas build && tsc --noEmit -p tsconfig.json",
+        "visualcheck": "node scripts/visualcheck.mjs"
+    },
+    "dependencies": {
+        "@hankchen/canvas": "workspace:*",
+        "pdfkit": "0.20.2",
+        "qrcode": "1.5.4"
+    },
+    "devDependencies": {
+        "@types/node": "^26.6.2",
+        "@types/pdfkit": "^0.17.6",
+        "@types/qrcode": "^1.5.5",
+        "jpeg-js": "0.4.4",
+        "tsup": "^8.5.0",
+        "vitest": "^5.0.1"
+    }
+}

@@ -44,13 +44,17 @@ export {
 export {
     type BlitRect,
     type LayerBox,
+    ProductTypeMismatchError,
     type RenderBackend,
     type RenderCanvasOptions,
     type ShapeCapableBackend,
     type TextDrawOptions,
     forEachLayerBox,
     qrImageSrc,
+    renderAs,
     renderCanvas,
+    renderPages,
+    renderPagesAs,
     resolveChildAt,
     resolveLayerBox,
 } from './render'
@@ -68,3 +72,14 @@ export {
     heuristicMeasurerFactory,
     splitGraphemes,
 } from './text'
+export {
+    type Downloader,
+    type FetchLike,
+    type FetchResponseLike,
+    type ImageRegisteringBackend,
+    type QRMaterializer,
+    RESOURCE_ERROR_CODES,
+    type ResourceErrorCode,
+    ResourceMaterializeError,
+    type ResourceResolver,
+} from './resolver'

@@ -6,8 +6,18 @@
  * 读取——四档 fit 的几何全部在分派层算定。另带可选能力口：内在尺寸度量
  * imageIntrinsicSize?（ADR 0023 引入、ADR 0024 扩为全 fit 前置，查询而非绘制原语），
  * 形状原语对 drawEllipse? + drawImageMasked?（ADR 0026，两成员齐备才算形状能力
- * 后端，clip=circle 走圆形三步、未实现即矩形降级）。
+ * 后端，clip=circle 走圆形三步、未实现即矩形降级），图像登记缝 setImage?（工票 09 /
+ * 06 号决议，物化器按键登记资源字节的目标面）。
  * 文本布局策略（断行/度量）经 policies 注入，缺省为启发式对齐版（见 layout.ts）。
+ * 多页编排 renderPages 与产物断言入口 renderAs/renderPagesAs 同在本文件
+ * （对位 go renderer/renderpages.go + renderas.go：编排归核心、断言集中一处，
+ * 后端只做接线与产物决定）。
+ *
+ * 失败即抛纪律（对位 go renderer.go「失败即抛、渲染面丢弃、无产物逃逸」契约）：
+ * 任一原语/能力口失败即抛出——渲染面整体丢弃（无半成品面可取）、渲染模板的收尾
+ * end() 不达（产物不逃逸）、失败后的后端实例不复用（建面态残留，重建实例再渲染）。
+ * 模板侧（renderCanvas/renderPages/renderAs/renderPagesAs）据此保证：失败路径
+ * end() 必不达、函数以 throw 退出而非返回部分产物。
  */
 import {
     anchorOffset,
@@ -82,8 +92,13 @@ export interface TextDrawOptions {
 export interface RenderBackend {
     /** 创建渲染面 */
     begin(width: number, height: number): void
-    /** 收尾；产物语义由后端决定（预览就地绘制可无返回） */
-    end(): void
+    /**
+     * 收尾；产物语义由后端决定（预览就地绘制可无返回）。产物通道放宽 void → unknown
+     * （工票 09，对位 go Backend.End() any）：字节/文档型后端经此交出产物（PNG 字节、
+     * PDF 文档字节），类型由 renderAs/renderPagesAs 的泛型断言入口收敛到调用方期望——
+     * TS 结构化类型下既有 void 实现仍可赋给本契约（void → unknown 可赋值，非破坏）
+     */
+    end(): unknown
     /** 矩形盒：背景色 + 四边边框 */
     drawRect(
         x: number,
@@ -134,6 +149,17 @@ export interface RenderBackend {
      * ShapeCapableRenderer / Go ShapeCapableBackend 接口面同构），未实现即矩形降级
      */
     drawImageMasked?(src: string, srcRect: BlitRect, dstRect: BlitRect, maskRect: BlitRect): void
+    /**
+     * 图像登记缝（工票 09 / 06 号决议物化缝形态定稿，render.ts QR 臂注释的预告落地）：
+     * 物化器渲染前把资源字节以 wire src 同键登记进后端——键即 drawImage 收到的 src
+     * 引用（`qr:` 前缀键见 qrImageSrc、远程 URL 原样），渲染模板照常递原始引用，后端
+     * 遇已登记键取登记字节、未命中按普通 src 走。readonly 领域树零拷贝，物化结果不进
+     * wire（decode-encode 往返恒等不触碰）——对位 go「resolver 回写图层 SetResolvedSrc」
+     * 在 TS readonly 结构约束下的等价语义。可选能力口（既有后端零破坏）。
+     * 失败即抛纪律与五原语同门（见文件头契约注释）：登记失败即抛、渲染面丢弃、无产物
+     * 逃逸、失败路径 end() 不达、失败后实例不复用
+     */
+    setImage?(key: string, data: Uint8Array): void
 }
 
 /**
@@ -213,6 +239,23 @@ export function renderCanvas(
     policies?: TextLayoutPolicies,
     options?: RenderCanvasOptions,
 ): void {
+    paintCanvasSurface(canvas, backend, policies, options)
+    backend.end()
+}
+
+/**
+ * 页内绘制段：begin → 背景铺装 → 逐层 walk，不含 end 收尾——单页 renderCanvas 与多页
+ * renderPages 共享的页内编排（对位 go renderer.go paintPage：页内段与多页 renderPages
+ * 共享，End 收尾由各入口自答——单页一次、多页单文档统一一次）。本函数不做空页序列
+ * 校验，也不触 end：任一原语失败即抛（失败即抛纪律见文件头契约注释），调用方保证
+ * 失败路径 end() 不达
+ */
+function paintCanvasSurface(
+    canvas: Canvas,
+    backend: RenderBackend,
+    policies?: TextLayoutPolicies,
+    options?: RenderCanvasOptions,
+): void {
     backend.begin(canvas.width, canvas.height)
     paintBackground(canvas, backend)
     forEachLayerBox(canvas, (layer, box) => {
@@ -227,7 +270,95 @@ export function renderCanvas(
         if (options?.skipContent?.(layer)) return
         paintContent(layer, box, backend, policies)
     }, policies)
-    backend.end()
+}
+
+/**
+ * 多页编排（工票 09 / 06 号决议，对位 go renderer/renderpages.go + renderer.go
+ * renderPages）：消费已分页页序列（帧序×页序，readonly Canvas[] 即够——每页尺寸与
+ * 背景由各 canvas 自带，无独立页类型），逐页复用页内段 paintCanvasSurface，全部页
+ * 完成后单文档统一 end 一次。编排语义三条（对位 go 同名语义）：
+ * ① n 页 = n 次 begin + 单文档统一 1 次 end；
+ * ② 空页序列属调用侧用法错误（零页文档无意义，不设稳定 code）——报错且不触达任何
+ *    原语（0 次 begin + 0 次 end，「空文档」语义不由模板代答）；
+ * ③ 任一页任一原语失败即中止——end 不达、整个文档无产物逃逸（throw 路径函数不
+ *    返回产物；已绘页不回滚）。
+ * 产物 unknown（类型由后端 end 决定），期望类型经 renderPagesAs 泛型断言入口收敛。
+ * 渲染期取消（go 页间 ctx 检查点）v1 不做（06 号决议 E1 记雾区）
+ */
+export function renderPages(
+    pages: readonly Canvas[],
+    backend: RenderBackend,
+    policies?: TextLayoutPolicies,
+    options?: RenderCanvasOptions,
+): unknown {
+    if (pages.length === 0) {
+        // 对位 go「RenderPages: 页序列为空，至少需要一页」（用法错误不设 code）
+        throw new Error('renderPages: 页序列为空，至少需要一页')
+    }
+    for (const page of pages) {
+        paintCanvasSurface(page, backend, policies, options)
+    }
+    return backend.end()
+}
+
+/**
+ * 渲染产物类型不符（对位 go assertProduct 的「类型不符报可读错误」；形态对齐核心包
+ * 既有错误类：name + 稳定 code + 中文消息）。期望类型 T 是编译期概念（TS 泛型运行时
+ * 擦除，无 go reflect 对位物），运行时可判的不符形态只有「后端未产生产物」——
+ * end() 返回 null/undefined（预览型就地绘制后端无产物通道）时抛本错误；其余结构面
+ * 按 TS 类型断言语义编译期收敛（不做结构校验），不符属调用侧用法错误
+ */
+export class ProductTypeMismatchError extends Error {
+    readonly code = 'product_type_mismatch'
+
+    constructor() {
+        super('product_type_mismatch: 渲染产物缺失——后端 end() 未返回产物（预览型就地绘制后端无产物通道），无法按期望类型断言')
+        this.name = 'ProductTypeMismatchError'
+    }
+}
+
+/**
+ * 渲染成功后的产物断言（对位 go renderer/renderas.go assertProduct：断言集中一处，
+ * 替代调用方散落的裸类型断言）。null/undefined 产物（后端无产物通道）报专门错误类；
+ * 其余按 TS 类型断言语义 unknown → T——「类型由后端决定」契约下，期望类型与后端
+ * 产物约定的核对属调用方编译期责任，非结构校验
+ */
+function assertProduct<T>(product: unknown): T {
+    if (product === undefined || product === null) {
+        throw new ProductTypeMismatchError()
+    }
+    return product as T
+}
+
+/**
+ * 渲染整棵结构树并把产物断言为期望类型 T（对位 go renderer/renderas.go RenderAs）：
+ * 复用单页编排（页内段 + end 一次），渲染失败原样透传（错误面不变、end 不达、无产物
+ * 逃逸）；渲染成功后经 assertProduct 收敛产物类型。典型调用：
+ *
+ *     renderAs<Uint8Array>(canvas, imageRendererBackend)
+ */
+export function renderAs<T>(
+    canvas: Canvas,
+    backend: RenderBackend,
+    policies?: TextLayoutPolicies,
+    options?: RenderCanvasOptions,
+): T {
+    paintCanvasSurface(canvas, backend, policies, options)
+    return assertProduct<T>(backend.end())
+}
+
+/**
+ * 多页渲染并把产物断言为期望类型 T（对位 go RenderPagesAs 泛型断言辅助，renderas.go
+ * 模式的多页镜像）：复用 renderPages 编排（语义三条见其注释），渲染成功后经
+ * assertProduct 收敛产物类型
+ */
+export function renderPagesAs<T>(
+    pages: readonly Canvas[],
+    backend: RenderBackend,
+    policies?: TextLayoutPolicies,
+    options?: RenderCanvasOptions,
+): T {
+    return assertProduct<T>(renderPages(pages, backend, policies, options))
 }
 
 /**

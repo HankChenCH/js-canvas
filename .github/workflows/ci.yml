@@ -1,3 +1,27 @@
+# CI（工票 12 重写：双平台 + 双解析腿矩阵，对位 go-canvas tests.yml 三 job 形态）
+#
+# 腿一 workspace-inline（workspace 内联，对位 go workspace 态 go test）：
+#   platform = ubuntu-latest + macos-latest（napi 平台包覆盖面；windows 不承诺——
+#   两后端 README 注明，CI 不验证）。步骤顺序是硬事实：核心包 exports 指向 dist，
+#   后端包 typecheck/test 依赖核心 dist 存在 → install → build → typecheck → test。
+#   ubuntu 额外装 poppler-utils（pdffonts/pdfinfo/pdftoppm/pdftotext 结构断言腿，
+#   07 号决议「poppler 断言腿跑 ubuntu」）与 fonts-ipafont-gothic（CJK 单体 TTF，
+#   go pdf-renderer CI 同款包；工票原文提的 fonts-noto-cjk 在 ubuntu 只发 .ttc
+#   字体集、node 两后端统一 fail-fast 拒收 TTC，命中不了探针，故不用）。
+#   macOS 不装 poppler（结构断言腿自动 skip）；CJK 字体探 macOS 自带单体 TTF，
+#   全缺时样张腿按探针纪律 skip（对位 go testFont 的 t.Skip）。
+#
+# 腿二 pack-install-smoke（pack 安装冒烟，对位 go GOWORK=off 真实消费方腿）：
+#   三包 tarball（核心包必须一并打包——renderAs/renderPagesAs/setImage 新契约面
+#   尚未发布 npm registry，后端包依赖 @hankchen/canvas 由同树 tarball 满足）→
+#   独立临时目录 npm install（传递依赖走 registry）→ 最小渲染冒烟（消费
+#   node_modules/@hankchen/* 安装面，不触 workspace src）。
+#
+# 环境变量 PDF_RENDERER_POPPLER_DIR：pdf-renderer 测试的 poppler 定位覆写（测试
+# helpers 缺省探 /opt/homebrew/bin）。统一指 /usr/bin——ubuntu apt 安装位（结构
+# 断言腿开跑）；macOS 无系统 poppler、该目录下四件套不存在（自动 skip，同 07 号
+# 决议「mac 腿跑其余」）。
+
 name: CI
 
 on:
@@ -6,8 +30,15 @@ on:
     pull_request:
 
 jobs:
-    ci:
-        runs-on: ubuntu-latest
+    workspace-inline:
+        name: workspace 内联（${{ matrix.os }}）
+        runs-on: ${{ matrix.os }}
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ubuntu-latest, macos-latest]
+        env:
+            PDF_RENDERER_POPPLER_DIR: /usr/bin
         steps:
             - uses: actions/checkout@v4
 
@@ -20,14 +51,72 @@ jobs:
                   node-version-file: .nvmrc
                   cache: pnpm
 
+            # poppler 四件套（PDF 结构断言腿）+ CJK 单体 TTF（样张字体腿）。
+            # 字体不用 fonts-noto-cjk：ubuntu 该包只发 .ttc 集合，node 侧 TTC
+            # fail-fast 拒收，探针命中不了（详见文件头注释）
+            - name: 安装 poppler 与 CJK 字体（仅 ubuntu）
+              if: runner.os == 'Linux'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y poppler-utils fonts-ipafont-gothic
+
             - name: 安装依赖
               run: pnpm install --frozen-lockfile
+
+            # 顺序硬事实：后端包 typecheck/test 依赖核心包 dist（exports 指向 dist）
+            - name: 各包构建（先 build：后端包 typecheck/test 依赖核心 dist）
+              run: pnpm -r build
 
             - name: 各包类型检查
               run: pnpm -r typecheck
 
-            - name: 各包测试
+            - name: 各包测试（ubuntu 含 poppler 结构断言腿；CJK 探针缺席自动 skip）
               run: pnpm -r test
 
-            - name: 各包构建（发布产物管线）
+            # 样张冒烟腿（07 号决议：CI 只验「能出产物不抛错」，像素目验人审本地做；
+            # 产物 gitignore）。JS_CANVAS_ALLOW_NO_FONT=1：字体全缺时 image 腿按
+            # 探针纪律 skip（打印原因、不产残图、0 退出，对位 go t.Skip）；pdf 腿
+            # 降级 Helvetica 只排 ASCII（go pdf 同款，天然可跑）
+            - name: 目验样张冒烟（能出产物不抛错）
+              run: |
+                  pnpm --filter @hankchen/canvas-image-renderer visualcheck
+                  pnpm --filter @hankchen/canvas-pdf-renderer visualcheck
+              env:
+                  JS_CANVAS_ALLOW_NO_FONT: '1'
+
+    pack-install-smoke:
+        name: pack 安装冒烟（${{ matrix.os }}）
+        runs-on: ${{ matrix.os }}
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ubuntu-latest, macos-latest]
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: pnpm/action-setup@v4
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version-file: .nvmrc
+                  cache: pnpm
+
+            - name: 安装依赖
+              run: pnpm install --frozen-lockfile
+
+            - name: 各包构建（pack 需要 dist 就位）
               run: pnpm -r build
+
+            # 三包一并打包：核心包新契约面（renderAs/renderPagesAs/setImage）尚未
+            # 发布 npm registry，后端包的 @hankchen/canvas 依赖必须由同树 tarball
+            # 满足（pnpm pack 会把 workspace:* 重写为实际版本）
+            - name: 三包打包
+              run: |
+                  mkdir -p "$RUNNER_TEMP/pack-output"
+                  pnpm --filter @hankchen/canvas pack --pack-destination "$RUNNER_TEMP/pack-output"
+                  pnpm --filter @hankchen/canvas-image-renderer pack --pack-destination "$RUNNER_TEMP/pack-output"
+                  pnpm --filter @hankchen/canvas-pdf-renderer pack --pack-destination "$RUNNER_TEMP/pack-output"
+
+            # 独立临时目录安装 + 最小渲染冒烟（编排见 scripts/ci/pack-smoke.sh）
+            - name: 独立目录安装 tarball 并渲染冒烟（真实消费方解析面）
+              run: bash scripts/ci/pack-smoke.sh "$RUNNER_TEMP/pack-output"
