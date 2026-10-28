@@ -27,7 +27,28 @@ function probeSystemFont(): string | null {
     return null
 }
 
+// CJK 探针独立于拉丁探针：DejaVu/Liberation 无 CJK 字形，tofu 盒宽反而可能小于
+// 拉丁（ubuntu CI 实测「中文中文」38.4 < 「abab」39.9），「CJK 宽于拉丁」断言只在
+// 含 CJK 字形的字体上有意义。候选对位 pdf 包 tests/helpers.ts probeCjkFont（共享
+// 小件同式复制纪律）；全缺 skip——「CJK 探针缺席自动 skip」同款（07 号决议）。
+function probeCjkSystemFont(): string | null {
+    const candidates = [
+        '/usr/share/fonts/truetype/fonts-ipafont-gothic/ipag.ttf',
+        '/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf',
+        '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
+    ]
+    for (const p of candidates) {
+        try {
+            if (statSync(p).isFile()) return p
+        } catch {
+            // 试下一个候选
+        }
+    }
+    return null
+}
+
 const SYSTEM_FONT = probeSystemFont()
+const CJK_SYSTEM_FONT = probeCjkSystemFont()
 
 describe('isBuiltinFont 判定（对位 go IsBuiltinFont/IsNumeric 同口径）', () => {
     it('空串与纯数字（含浮点字面量）为内置', () => {
@@ -66,8 +87,8 @@ describe('createNapiMeasurerFactory（核心 TextMeasurerFactory 契约）', () 
             expect(w24).toBeGreaterThan(w12 * 1.5)
         })
 
-        it('CJK 宽度大于拉丁（真实字形的宽差异被度量出来）', () => {
-            const measurer = createNapiMeasurerFactory(font, 16)
+        it.skipIf(CJK_SYSTEM_FONT === null)('CJK 宽度大于拉丁（真实字形的宽差异被度量出来）', () => {
+            const measurer = createNapiMeasurerFactory(CJK_SYSTEM_FONT as string, 16)
             expect(measurer.measure('中文中文')).toBeGreaterThan(measurer.measure('abab'))
         })
 
